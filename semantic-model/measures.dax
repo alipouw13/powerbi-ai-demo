@@ -1,0 +1,104 @@
+// Contoso Coffee - DAX measures for the demo semantic model
+//
+// Paste these into Power BI Desktop, or let GitHub Copilot generate them from
+// docs/03-model.md and compare its output against this file.
+//
+// Every measure has a description. Copilot reads the first 200 characters of a
+// measure description, so the descriptions here are short and literal on purpose.
+// Put them in the Description box in the Properties pane (Model view).
+
+// ---------------------------------------------------------------------------
+// Core amounts
+// ---------------------------------------------------------------------------
+
+// Description: Revenue after discounts. This is the default revenue measure and the one
+// to use for any question about sales, revenue, or turnover.
+Net Revenue =
+SUM ( fact_sales[net_amount] )
+
+// Description: Revenue before discounts are applied. Only use when the question is
+// explicitly about list price or pre-discount value.
+Gross Revenue =
+SUM ( fact_sales[gross_amount] )
+
+// Description: Total value of discounts given.
+Discount Amount =
+SUM ( fact_sales[discount_amount] )
+
+// Description: Cost of goods sold for the items on the sales lines.
+Cost of Goods Sold =
+SUM ( fact_sales[cost_amount] )
+
+// Description: Net Revenue minus Cost of Goods Sold, in dollars.
+Gross Margin =
+[Net Revenue] - [Cost of Goods Sold]
+
+// Description: Gross Margin as a percentage of Net Revenue.
+Gross Margin % =
+DIVIDE ( [Gross Margin], [Net Revenue] )
+
+// Description: Number of individual items sold. Not the number of orders.
+Units Sold =
+SUM ( fact_sales[quantity] )
+
+// Description: Count of distinct sales order lines.
+Order Lines =
+COUNTROWS ( fact_sales )
+
+// Description: Average Net Revenue per sales order line.
+Average Line Value =
+DIVIDE ( [Net Revenue], [Order Lines] )
+
+// ---------------------------------------------------------------------------
+// Time intelligence
+// Requires dim_date to be marked as a date table on dim_date[date_key].
+// ---------------------------------------------------------------------------
+
+// Description: Net Revenue from the first day of the year to the current date in context.
+Net Revenue YTD =
+TOTALYTD ( [Net Revenue], dim_date[date_key] )
+
+// Description: Net Revenue for the same period one year earlier.
+Net Revenue LY =
+CALCULATE ( [Net Revenue], SAMEPERIODLASTYEAR ( dim_date[date_key] ) )
+
+// Description: Change in Net Revenue versus the same period last year, in dollars.
+Net Revenue YoY =
+[Net Revenue] - [Net Revenue LY]
+
+// Description: Percentage growth in Net Revenue versus the same period last year.
+Net Revenue YoY % =
+DIVIDE ( [Net Revenue YoY], [Net Revenue LY] )
+
+// ---------------------------------------------------------------------------
+// Mix and ranking
+// ---------------------------------------------------------------------------
+
+// Description: This item's Net Revenue as a share of all Net Revenue in the current filter.
+Revenue Share % =
+DIVIDE (
+    [Net Revenue],
+    CALCULATE ( [Net Revenue], REMOVEFILTERS ( dim_product ), REMOVEFILTERS ( dim_store ) )
+)
+
+// Description: Name of the store with the highest Net Revenue in the current filter context.
+Top Store by Revenue =
+CALCULATE (
+    SELECTEDVALUE ( dim_store[store_name] ),
+    TOPN ( 1, ALLSELECTED ( dim_store[store_name] ), [Net Revenue], DESC )
+)
+
+// Description: Name of the product with the highest Net Revenue in the current filter context.
+Top Product by Revenue =
+CALCULATE (
+    SELECTEDVALUE ( dim_product[product_name] ),
+    TOPN ( 1, ALLSELECTED ( dim_product[product_name] ), [Net Revenue], DESC )
+)
+
+// Description: Net Revenue on Saturdays and Sundays only.
+Weekend Revenue =
+CALCULATE ( [Net Revenue], dim_date[is_weekend] = TRUE () )
+
+// Description: Net Revenue on Monday to Friday only. Pairs with Weekend Revenue.
+Weekday Revenue =
+CALCULATE ( [Net Revenue], dim_date[is_weekend] = FALSE () )

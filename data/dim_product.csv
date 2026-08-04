@@ -1,0 +1,13 @@
+product_key,product_name,category,subcategory,unit_price,unit_cost
+1,Espresso Single,Beverage,Espresso,2.75,0.7
+2,Espresso Double,Beverage,Espresso,3.5,0.95
+3,Latte Regular,Beverage,Milk Coffee,4.25,1.2
+4,Latte Large,Beverage,Milk Coffee,5.1,1.45
+5,Cappuccino,Beverage,Milk Coffee,4.1,1.15
+6,Cold Brew,Beverage,Cold Coffee,4.6,1.3
+7,Iced Latte,Beverage,Cold Coffee,4.75,1.35
+8,Herbal Tea,Beverage,Tea,3.2,0.6
+9,Blueberry Muffin,Food,Bakery,3.4,1.1
+10,Almond Croissant,Food,Bakery,3.95,1.4
+11,Breakfast Sandwich,Food,Hot Food,6.5,2.6
+12,Coffee Beans 1lb,Retail,Packaged,16.0,7.5

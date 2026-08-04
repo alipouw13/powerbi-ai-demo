@@ -1,0 +1,9 @@
+store_key,store_name,city,state,region,store_type,opened_date
+1,Contoso Pike Place,Seattle,WA,West,Flagship,2019-03-11
+2,Contoso Bellevue Square,Bellevue,WA,West,Mall,2020-08-24
+3,Contoso Mission District,San Francisco,CA,West,Standard,2021-01-18
+4,Contoso River North,Chicago,IL,Central,Standard,2020-05-04
+5,Contoso Deep Ellum,Dallas,TX,Central,Standard,2022-02-14
+6,Contoso Midtown,New York,NY,East,Flagship,2018-09-10
+7,Contoso Back Bay,Boston,MA,East,Standard,2021-06-21
+8,Contoso Wynwood,Miami,FL,East,Kiosk,2023-04-03

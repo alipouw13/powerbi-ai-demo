@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Power BI local artefacts
+*.pbix
+*.pbip.cache/
+.pbi/localSettings.json
+*.abf
+
+# VS Code, except the shared MCP sample
+.vscode/*
+!.vscode/mcp.json.example
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Scratch
+scratch/
+tmp/
+*.log
