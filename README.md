@@ -199,7 +199,7 @@ a clear owner, while the orchestrator keeps the handoffs and accuracy loop consi
 | [`semantic-model-author`](.github/agents/semantic-model-author.agent.md) | Use for star schema design, relationships, DAX, descriptions, synonyms, categories, and summarisation. | Owns phase 3 and builds the governed semantic model that all Copilot and data-agent answers depend on. |
 | [`model-readiness-auditor`](.github/agents/model-readiness-auditor.agent.md) | Use for an AI-readiness pre-flight or to predict which question-bank answers will fail. | Owns gate 3b, ranks model defects by their likely effect on accuracy, and sends fixes back to the model author. |
 | [`copilot-readiness`](.github/agents/copilot-readiness.agent.md) | Use for Prep data for AI, AI instructions, the AI data schema, verified answers, or Approved for Copilot. | Owns phase 4 and captures business meaning on the semantic model before the post-preparation accuracy pass. |
-| [`report-builder`](.github/agents/report-builder.agent.md) | Use to create report pages or narrative visuals with Power BI Copilot and then harden the result. | Owns phase 5 and checks every Copilot-generated visual against the repository's ground truth instead of judging appearance alone. |
+| [`report-builder`](.github/agents/report-builder.agent.md) | Use to create report pages or narrative visuals with Power BI Copilot, restyle a page from an uploaded screenshot, and then harden the result. | Owns phase 5, checks every Copilot-generated visual against the repository's ground truth instead of judging appearance alone, and uses the `report-restyle-from-screenshot` skill to turn a generic Copilot page into a designed one without touching the data bindings. |
 | [`insights-analyst`](.github/agents/insights-analyst.agent.md) | Use to ask business questions in the report Copilot pane or standalone Copilot. | Owns phase 6, behaves like a model-naive consumer, and records answers without rewording questions to force a pass. |
 | [`data-agent-builder`](.github/agents/data-agent-builder.agent.md) | Use to create, configure, test, publish, or troubleshoot the Fabric data agent. | Owns the main part of phase 7, including source selection and routing between the semantic model and lakehouse. |
 | [`ontology-architect`](.github/agents/ontology-architect.agent.md) | Use for the optional Fabric IQ ontology (preview), entity types, bindings, and relationships. | Owns optional phase 7b and shows how reusable business concepts can extend the same governed model. |
@@ -207,10 +207,18 @@ a clear owner, while the orchestrator keeps the handoffs and accuracy loop consi
 
 ### Skill inventory
 
-There are currently **no repository-local Agent Skills** under `.github/skills/`. That is
-intentional: the current customizations are phase-owning personas, so agents are the
-right abstraction. The "skill picker" mentioned in phase 4 is a Power BI Copilot product
-control and is not the same thing as a GitHub Copilot Agent Skill.
+Repository-local Agent Skills live in [`.github/skills/`](.github/skills).
+
+| Skill | When it loads | What it does |
+| --- | --- | --- |
+| [`report-restyle-from-screenshot`](.github/skills/report-restyle-from-screenshot/SKILL.md) | "make this page look like this screenshot", "the Copilot page is ugly", "apply this design to my report", "restyle the report" | Reads an uploaded design screenshot in GitHub Copilot Chat, turns it into a design spec, and applies the layout, palette, and theme to the published report by rewriting its PBIR definition through the Fabric MCP server. Field bindings and measures are out of scope, so a restyle cannot move a number. |
+
+The `report-builder` agent uses this skill in phase 5, after the Copilot-generated page
+has been checked against ground truth. It can also be invoked directly with
+`/report-restyle-from-screenshot`.
+
+Note that the "skill picker" mentioned in phase 4 is a Power BI Copilot product control,
+and is not the same thing as a GitHub Copilot Agent Skill.
 
 Add a repository skill when a focused procedure should be reusable by several agents,
 such as regenerating and checking synthetic data, validating all documentation numbers,
@@ -335,6 +343,7 @@ resource layout.
 
 ```
 .github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
+.github/skills/      reusable procedures agents can load, such as restyling a report page from a screenshot
 .github/prompts/     copy-paste prompts, one section per phase from 1 onward
 data/                synthetic CSVs and the seeded generator that made them
 diagram/             the architecture diagram and the generator that produces it

@@ -196,6 +196,35 @@ Add a narrative visual that summarises revenue performance for 2025 compared to 
 
 ---
 
+## Phase 5, restyle from a screenshot (GitHub Copilot Chat, agent `report-builder`, skill `report-restyle-from-screenshot`)
+
+Publish the report first, connect the Fabric MCP server, and attach the screenshot of the
+layout you want to the chat turn.
+
+```text
+Here is the layout I want. Restyle my Contoso Coffee report to match it.
+
+Read the screenshot into a design spec first and show me the spec before you change
+anything. Then fetch the report definition from the workspace with the Fabric MCP
+server, apply the layout, the palette, and the theme onto a new page called "Executive
+overview", and leave the original Copilot page alone.
+
+Do not change any field bindings or measures. Layout, visual types, and formatting only.
+```
+
+```text
+The KPI cards are still too tall and the palette is warmer in my screenshot than in the
+page you produced. Adjust those two things only, then show me the before and after side
+by side.
+```
+
+```text
+Confirm you did not change any queryState, then run python validation/ground_truth.py
+and tell me whether any visible total moved.
+```
+
+---
+
 ## Phase 6, insights (Copilot pane and standalone Copilot, consumer)
 
 Ask the 15 questions in [`validation/question-bank.md`](../../validation/question-bank.md)

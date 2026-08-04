@@ -81,6 +81,76 @@ Copilot produced a draft. Before anyone sees it:
 4. **Set verified answers** on the best two or three visuals, then go back to
    [phase 4](04-prep-for-ai.md). Those visuals are now curated answers.
 5. **Publish** to the workspace.
+6. **Restyle it**, once the numbers are right, using the screenshot workflow below.
+
+---
+
+## Make it look like something, from a screenshot
+
+Copilot in Power BI gave you a correct page that looks generic. Default visuals, stacked
+in a column, stock theme. The Copilot pane cannot help you here, because it cannot read
+an image.
+
+GitHub Copilot Chat can read an image, and the Fabric MCP server can rewrite the report
+definition. Together they can take a screenshot of the design someone actually wants and
+apply it to the report you just built.
+
+The repository skill
+[`.github/skills/report-restyle-from-screenshot`](../.github/skills/report-restyle-from-screenshot/SKILL.md)
+carries the procedure. The `report-builder` agent uses it automatically, or invoke it
+with `/report-restyle-from-screenshot`.
+
+**What you need first**
+
+- The report published to the workspace. If it only exists in Desktop there is no item
+  definition to fetch.
+- A Fabric MCP server connected in VS Code, from [phase 1](01-provision.md).
+- The numbers on the page already checked. Restyling first only makes a wrong page
+  attractive.
+
+**How it goes**
+
+In GitHub Copilot Chat, with the `report-builder` agent selected, attach the screenshot
+and say:
+
+```text
+Here is the layout I want. Restyle my Contoso Coffee report to match it.
+
+Read the screenshot into a design spec first and show me the spec before you change
+anything. Then fetch the report definition from the workspace with the Fabric MCP
+server, apply the layout, the palette, and the theme onto a new page called "Executive
+overview", and leave the original Copilot page alone.
+
+Do not change any field bindings or measures. Layout, visual types, and formatting only.
+```
+
+What happens under the hood:
+
+1. Copilot reads the image and writes a design spec: canvas size, palette hex values,
+   the KPI card row, chart positions, gutters. It shows you that spec first, because
+   this is the step that goes wrong silently.
+2. It calls `get_item_definition` and gets the report back as PBIR JSON: `page.json` per
+   page, a `visual.json` per visual, `report.json` for the theme.
+3. It rewrites the position blocks, the visual types where the screenshot clearly shows
+   a different chart, the formatting, and it registers a custom theme built from your
+   palette.
+4. It calls `update_item_definition` with every required part, not only the changed
+   ones, because that call replaces the definition rather than patching it.
+5. It fetches the definition again, screenshots the result, and puts it next to your
+   image so you can see what still does not match.
+
+**The line that must not be crossed**
+
+Layout, visual type, formatting, theme: fair game. Field bindings, measures, and the
+semantic model binding: never. So re-run `python validation/ground_truth.py` afterwards.
+A restyle that moves a number is a bug, not a design choice.
+
+**Why demo it this way**
+
+Keep the generic Copilot page and the restyled page side by side in the same report.
+That contrast is the point: Copilot removes the blank page, and a screenshot plus MCP
+turns the draft into something you would put in front of an executive, without anybody
+dragging visuals around a canvas for an hour.
 
 ---
 
@@ -98,5 +168,7 @@ Docs:
 - https://learn.microsoft.com/power-bi/create-reports/copilot-introduction
 - https://learn.microsoft.com/power-bi/create-reports/copilot-reports-overview
 - https://learn.microsoft.com/power-bi/create-reports/copilot-enable-power-bi
+- https://learn.microsoft.com/rest/api/fabric/articles/item-management/definitions/report-definition
+- https://learn.microsoft.com/power-bi/developer/projects/projects-report
 
 Next: [phase 6, insights](06-insights.md)
