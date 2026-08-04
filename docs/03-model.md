@@ -46,7 +46,7 @@ Install the `analysis-services.powerbi-modeling-mcp` VS Code extension, open the
 Power BI Desktop, then in Copilot Chat:
 
 ```text
-Connect to "ContosoCoffee" in Power BI Desktop
+Connect to semantic model 'ContosoCoffee' in Fabric Workspace 'Contoso Coffee AI Demo'
 ```
 
 It exposes `measure_operations`, `column_operations`, `relationship_operations`,
