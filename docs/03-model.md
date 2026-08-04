@@ -49,6 +49,22 @@ Power BI Desktop, then in Copilot Chat:
 Connect to semantic model 'ContosoCoffee' in Fabric Workspace 'Contoso Coffee AI Demo'
 ```
 
+After it connects, prompt GitHub Copilot:
+
+```text
+analyze my tables and create a model with proper relationships so i can create dax measures and a report
+```
+
+When Copilot finishes, verify the result before continuing:
+
+1. Ask Copilot to list every relationship it created, including the columns, cardinality,
+   cross-filter direction, and whether the relationship is active.
+2. In Power BI Model view, compare that list with the three expected relationships in the
+   [Relationships](#relationships) section below.
+3. Confirm each relationship is active, many-to-one from `fact_sales` to its dimension,
+   and uses single-direction filtering. Remove any extra fact-to-fact, dimension-to-
+   dimension, or bidirectional relationships Copilot created.
+
 It exposes `measure_operations`, `column_operations`, `relationship_operations`,
 `dax_query_operations`, `table_operations` and more against the live model.
 
