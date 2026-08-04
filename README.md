@@ -81,7 +81,7 @@ You also need:
 ## Quickstart
 
 ```bash
-git clone https://github.com/<your-account>/powerbi-ai-demo.git
+git clone https://github.com/alipouw13/powerbi-ai-demo.git
 cd powerbi-ai-demo
 
 # generate the data (already committed, this just proves it is reproducible)
