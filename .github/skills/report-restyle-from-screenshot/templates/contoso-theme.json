@@ -1,0 +1,127 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/themes/2.4.0/schema.json",
+  "name": "ContosoScreenshot",
+  "dataColors": [
+    "#6F4E37",
+    "#C8A27A",
+    "#3C6E71",
+    "#D9A441",
+    "#8C5E58",
+    "#5B7553",
+    "#A6785A",
+    "#274156"
+  ],
+  "background": "#F5F3F0",
+  "foreground": "#1B1B1B",
+  "tableAccent": "#6F4E37",
+  "good": "#2E7D32",
+  "neutral": "#8A8A8A",
+  "bad": "#C62828",
+  "textClasses": {
+    "title": {
+      "fontFace": "Segoe UI Semibold",
+      "fontSize": 16,
+      "color": "#1B1B1B"
+    },
+    "header": {
+      "fontFace": "Segoe UI Semibold",
+      "fontSize": 12,
+      "color": "#1B1B1B"
+    },
+    "label": {
+      "fontFace": "Segoe UI",
+      "fontSize": 10,
+      "color": "#4A4A4A"
+    },
+    "callout": {
+      "fontFace": "Segoe UI Semibold",
+      "fontSize": 32,
+      "color": "#1B1B1B"
+    }
+  },
+  "visualStyles": {
+    "*": {
+      "*": {
+        "background": [
+          {
+            "show": true,
+            "color": { "solid": { "color": "#FFFFFF" } },
+            "transparency": 0
+          }
+        ],
+        "border": [
+          {
+            "show": true,
+            "color": { "solid": { "color": "#E4DED6" } },
+            "radius": 8
+          }
+        ],
+        "dropShadow": [
+          {
+            "show": true,
+            "preset": "Custom",
+            "color": { "solid": { "color": "#000000" } },
+            "transparency": 92,
+            "blur": 8,
+            "position": "Outer"
+          }
+        ],
+        "title": [
+          {
+            "show": true,
+            "alignment": "left",
+            "fontSize": 12,
+            "fontColor": { "solid": { "color": "#1B1B1B" } }
+          }
+        ],
+        "visualHeader": [
+          {
+            "show": false
+          }
+        ]
+      }
+    },
+    "page": {
+      "*": {
+        "background": [
+          {
+            "color": { "solid": { "color": "#F5F3F0" } },
+            "transparency": 0
+          }
+        ],
+        "outspace": [
+          {
+            "color": { "solid": { "color": "#F5F3F0" } }
+          }
+        ]
+      }
+    },
+    "card": {
+      "*": {
+        "labels": [
+          {
+            "fontSize": 28,
+            "color": { "solid": { "color": "#1B1B1B" } }
+          }
+        ],
+        "categoryLabels": [
+          {
+            "show": true,
+            "fontSize": 10,
+            "color": { "solid": { "color": "#4A4A4A" } }
+          }
+        ]
+      }
+    },
+    "lineChart": {
+      "*": {
+        "lineStyles": [
+          {
+            "strokeWidth": 3,
+            "lineStyle": "solid"
+          }
+        ]
+      }
+    }
+  }
+}
