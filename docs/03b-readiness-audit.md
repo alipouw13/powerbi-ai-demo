@@ -2,7 +2,7 @@
 
 **Agent:** `model-readiness-auditor`
 **Time:** 15 minutes
-**AI on show:** none, deliberately
+**AI on show:** none for the audit itself, deliberately; Copilot in Desktop only to draft the fixes
 
 This is a gate, not a phase. It sits between [phase 3](03-model.md) and
 [phase 4](04-prep-for-ai.md), and it takes fifteen minutes.
@@ -116,6 +116,74 @@ Two checks it cannot automate, and you should still do by hand:
 
 ---
 
+## Fix it with Copilot in Power BI Desktop
+
+The audit tells you what is wrong. Copilot in Power BI Desktop is a fast way to draft the
+fix. Treat everything it returns as a **draft you review**, not an edit you accept
+blindly — you are the one who knows what the business calls these things.
+
+Enable Copilot in Desktop, then use these prompts against the `ContosoCoffee` model.
+
+**Rename things so a human, and an LLM, can tell them apart.**
+
+```text
+Recommend better names for tables, columns, and DAX measures.
+```
+
+This is the single highest-value prompt in the phase. Ambiguous names — `date2`, `amt`,
+`Sales 2` — are the most common reason Copilot picks the wrong column, and no amount of
+instruction text later on rescues a model whose names do not mean anything.
+
+Rename before you build anything on top of the model. A rename applied after phase 5
+means revisiting report visuals, verified answers, and any DAX that referenced the old
+name, so do this here rather than later.
+
+**Get a first draft of the AI instructions you will paste in phase 4.**
+
+```text
+Review my model and generate a text for Prep data for AI instruction. Use business
+friendly terms. Be explicit and specific and use analogies and descriptive language,
+avoid ambiguity.
+```
+
+Take the output into [phase 4](04-prep-for-ai.md) rather than pasting it straight in.
+Copilot describes what the model *is*; the AI instructions need to say what the business
+*means*, including the things that are nowhere in the metadata.
+
+**Ask for a general critique.**
+
+```text
+Suggest improvements to this semantic model.
+```
+
+Deliberately open-ended. Use it as a second opinion on the checklist, then keep only the
+findings you can map back to a Learn area in the table above.
+
+**Fill in the descriptions, which is where most models are thinnest.**
+
+```text
+Help me add or replace descriptions for each measure. Consider the following rules:
+
+- insert or replace the description that should appear above the measure code and after ///
+- use business friendly terms
+- describe the DAX code in the description in business-friendly terms; do not copy the
+  code into the description
+- use the measure name and the other measures as context
+- the description should not be longer than 500 characters
+```
+
+Two things to hold in mind when you review what comes back.
+
+The 500 character limit is a **drafting** limit, not the limit that matters at query time.
+Copilot reads only the **first 200 characters** of a description, so the first sentence has
+to carry the business meaning on its own and the rest is for the humans reading the TMDL.
+
+And `///` is the TMDL and DAX description syntax, so this prompt produces something you can
+commit. Descriptions written this way land in the PBIP folder, go through a pull request,
+and show up in a diff — which is exactly the split the next section is about.
+
+---
+
 ## Where the fix belongs
 
 The audit tends to produce a pile of small fixes. Put them in the right layer, because
@@ -153,6 +221,7 @@ what actually broke.
 Docs:
 - https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data
 - https://learn.microsoft.com/power-bi/create-reports/copilot-prepare-data-ai
+- https://learn.microsoft.com/power-bi/create-reports/copilot-introduction
 - https://learn.microsoft.com/fabric/data-science/semantic-link-overview
 - https://learn.microsoft.com/power-bi/developer/projects/projects-overview
 - https://github.com/microsoft/semantic-link-labs
