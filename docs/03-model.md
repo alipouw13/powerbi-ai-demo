@@ -2,8 +2,8 @@
 
 **Agent:** `semantic-model-author`
 **Time:** 25 minutes
-**AI on show:** GitHub Copilot for measures and descriptions, DAX query view with
-Copilot, Power BI Modeling MCP server (public preview)
+**AI on show:** Power BI MCP server (local, preview) driving the model from Copilot Chat,
+GitHub Copilot for measures and descriptions, DAX query view with Copilot
 
 This is the phase that decides whether phases 5, 6 and 7 succeed. Copilot cannot be
 better than the metadata you give it. Everything after this is downstream of the work
@@ -20,6 +20,56 @@ Alternatively, connect Power BI Desktop to the lakehouse and build an Import mod
 demo works either way. Note that in phase 4, Power BI Desktop supports Prep data for AI
 only on Import, DirectQuery, and Composite (local) models, while the Power BI service
 supports all model types including Direct Lake.
+
+---
+
+## How you edit the model: pick one
+
+Everything below can be done by hand in Power BI Desktop. It can also be done by asking,
+which is the point of the demo.
+
+| Surface | Use it for | Status |
+| --- | --- | --- |
+| **Power BI MCP server, local** | Bulk edits: relationships, descriptions, summarisation, data categories, renames, DAX validation. Works against Desktop, a Fabric workspace, or a PBIP/TMDL folder. | Preview |
+| GitHub Copilot in VS Code on the PBIP/TMDL folder | Drafting text, reviewing diffs, anything that is really a file edit | GA |
+| DAX query view with Copilot | Writing and explaining a single query | GA |
+| Power BI Desktop UI | The five clicks that are faster than a prompt | GA |
+
+**Use the local MCP server as the default for this phase.** Microsoft Learn lists exactly
+this workload — "apply modeling best practices across an existing semantic model in bulk"
+and "refactor TMDL or Power BI Project files as part of an agentic development workflow" —
+as what it is for. Doing the twelve items below one dialog at a time is the slow path.
+
+### Set it up
+
+Install the `analysis-services.powerbi-modeling-mcp` VS Code extension, open the model in
+Power BI Desktop, then in Copilot Chat:
+
+```text
+Connect to "ContosoCoffee" in Power BI Desktop
+```
+
+It exposes `measure_operations`, `column_operations`, `relationship_operations`,
+`dax_query_operations`, `table_operations` and more against the live model.
+
+### Guardrails, because it writes
+
+1. It is **preview**. Tool names and shapes can change. Re-check before you present.
+2. It needs **Write** permission on the model. Point it at a demo model, never at
+   someone's production semantic model.
+3. It ships a **`--readonly` flag**. Use it if you are only demoing the read side.
+4. Prefer running it against a **PBIP/TMDL folder in source control** rather than a live
+   workspace model, so every AI edit lands as a reviewable diff. This is the single
+   biggest reason to trust it.
+5. **Verify the numbers afterwards** with `python validation/ground_truth.py`. An agent
+   that renames confidently can also rewrite a measure confidently.
+
+### Don't confuse it with the remote server
+
+There are two. The **local** server does semantic model *authoring* — that is this phase.
+The **remote** Power BI MCP server is for *chatting with data* in a published model, needs
+a tenant setting enabled by an admin, and its `Generate Query` tool consumes Copilot
+capacity. That one is relevant to [phase 6](06-insights.md), not here.
 
 ---
 
@@ -135,23 +185,6 @@ nobody saw coming.
 
 ---
 
-## Power BI Modeling MCP server, optional
-
-Public preview: https://github.com/microsoft/powerbi-modeling-mcp
-
-Install the `analysis-services.powerbi-modeling-mcp` VS Code extension, then connect
-from Copilot Chat:
-
-```text
-Connect to "ContosoCoffee" in Power BI Desktop
-```
-
-It exposes `measure_operations`, `column_operations`, `relationship_operations`,
-`dax_query_operations`, `table_operations` and more, against the live model. Microsoft
-Learn recommends it specifically for generating business friendly names before you build
-a data agent. It needs Write permission, and it has a `--readonly` flag if you want to
-demo it safely.
-
 ---
 
 ## Verify before you leave this phase
@@ -184,6 +217,8 @@ a result.
 ---
 
 Docs:
+- https://learn.microsoft.com/power-bi/developer/mcp/mcp-servers-overview
+- https://github.com/microsoft/powerbi-modeling-mcp
 - https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data
 - https://learn.microsoft.com/power-bi/natural-language/q-and-a-best-practices
 - https://learn.microsoft.com/dax/dax-copilot

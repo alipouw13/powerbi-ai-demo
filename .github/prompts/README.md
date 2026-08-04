@@ -49,7 +49,46 @@ fact_sales 64335. Mine do not match. Help me find where rows were dropped.
 
 ---
 
-## Phase 3, model (GitHub Copilot Chat, or Power BI Modeling MCP)
+## Phase 3, model (Power BI MCP server, local — preferred)
+
+Connect first, with the model open in Power BI Desktop:
+
+```text
+Connect to "ContosoCoffee" in Power BI Desktop
+```
+
+```text
+Create these relationships, all many-to-one and single direction:
+fact_sales[date_key] to dim_date[date_key], fact_sales[product_key] to
+dim_product[product_key], fact_sales[store_key] to dim_store[store_key].
+Then mark dim_date as the date table on dim_date[date_key].
+```
+
+```text
+Set summarisation to Don't summarize on year, month_number, day_of_week_number and every
+column ending in _key. Set the data category of dim_store[city] to City and
+dim_store[state] to State or Province. Hide every *_key column and the raw amount
+columns from report view.
+```
+
+```text
+Read semantic-model/measures.dax and add every measure to the model, including its
+description. Then run each measure as a DAX query and show me the result so I can check
+it against validation/ground_truth.py.
+```
+
+```text
+Audit this model against semantic-model/ai-readiness-checklist.md and fix only the
+Critical findings. List every change you made before you make it.
+```
+
+Guardrails: it writes to the live model. Point it at a demo model, use `--readonly` if
+you only want to show the read side, and re-run `python validation/ground_truth.py`
+afterwards.
+
+---
+
+## Phase 3, model (GitHub Copilot Chat)
 
 ```text
 Read semantic-model/measures.dax. For each measure, write a one sentence description
