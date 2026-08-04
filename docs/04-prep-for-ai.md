@@ -8,7 +8,9 @@ This is the argument of the whole demo. Same questions, same data, better answer
 because a human told the model what things mean.
 
 Run pass A first. If you have not scored the questions before doing this phase, stop and
-go back to [phase 3](03-model.md).
+go back to [phase 3](03-model.md). If you have not audited the model, go back to
+[phase 3b](03b-readiness-audit.md). Preparing an unaudited model for AI just moves the
+problem somewhere harder to find.
 
 ---
 
@@ -22,6 +24,13 @@ go back to [phase 3](03-model.md).
 
 All three save to the **semantic model**, not to the report. That is why they benefit
 every report built on the model, and every agent that uses it.
+
+It is also why they are governable. Anything stored on the semantic model comes with you
+into [PBIP and TMDL](https://learn.microsoft.com/power-bi/developer/projects/projects-overview),
+which means source control, pull requests, and a diff you can review. Compare that with
+instructions typed into a data agent in the service, which have no version history at
+all. Phase 7 leans on this: put the business meaning here, keep agent-level instructions
+to routing.
 
 **Where to author them**
 
@@ -68,6 +77,16 @@ and `fact_sales[channel]`.
 product dimension (they are list values, and averaging them misleads).
 
 Full list in [`semantic-model/ai-instructions.md`](../semantic-model/ai-instructions.md).
+
+Two things to check once you have made the selection, both from the
+[readiness checklist](../semantic-model/ai-readiness-checklist.md):
+
+- **Every measure you included can still resolve.** If a measure in the schema depends
+  on a column you excluded, you have a gap between what the AI can see and what the
+  measure needs.
+- **Every measure you included is fast.** Run Performance Analyzer against just these
+  measures, not the whole model. A measure that takes several seconds in a visual is a
+  measure that times out inside a Copilot answer.
 
 ---
 
@@ -157,5 +176,6 @@ once if a result surprises you.
 Docs:
 - https://learn.microsoft.com/power-bi/create-reports/copilot-prepare-data-ai
 - https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data
+- https://learn.microsoft.com/power-bi/developer/projects/projects-overview
 
 Next: [phase 5, report](05-report.md)

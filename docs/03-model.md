@@ -79,6 +79,12 @@ DAX Copilot checks syntax and retries once automatically if the query fails.
 Work through this list. It is short, it is boring, and it is the entire difference
 between a demo that works and one that does not.
 
+It is the condensed version of Microsoft's own guidance in
+[Optimize your semantic model for Copilot in Power BI](https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data).
+The full checklist, with everything that page covers, is
+[`semantic-model/ai-readiness-checklist.md`](../semantic-model/ai-readiness-checklist.md),
+and you run it as the gate in [phase 3b](03b-readiness-audit.md).
+
 1. **Business friendly names.** Rename anything a person would not say out loud.
    `net_amount` is a column. `Net Revenue` is what someone asks for.
 2. **All three relationships defined.**
@@ -102,6 +108,30 @@ Very large models degrade Copilot quality, because there is a limit on how much 
 can be sent. One documented number worth knowing: only the **first 200 characters** of a
 description are used, so put the important words first. This model is nowhere near any
 limit, but someone will ask.
+
+### Three more that the Learn optimization page calls out
+
+Not in the list above because this model does not need all of them, but real models do.
+
+1. **Hierarchies.** Learn lists them explicitly as a model structure requirement. Build
+   `Year > Quarter > Month > Day` on `dim_date`. It gives Copilot a drill path instead
+   of a pile of date columns.
+2. **Calculation group descriptions.** Model metadata does not include calculation items
+   at all. If you have a calculation group with `YTD`, `MTD` and `PY`, the only way
+   Copilot learns those exist is the calculation group column's description. And that is
+   also cut at 200 characters, so list the items first, explain second.
+3. **No duplicate visible column names across tables.** If two tables both expose
+   `Date`, the query the AI generates can pick the wrong one and return a confidently
+   wrong number with no error.
+
+---
+
+## Gate: audit before you score
+
+Do not go straight from here to phase 4. Run [phase 3b](03b-readiness-audit.md) first.
+It is fifteen minutes, it produces a written list of predicted failures, and pass A then
+tells you which predictions were right. That is a far better demo moment than a failure
+nobody saw coming.
 
 ---
 
@@ -160,4 +190,5 @@ Docs:
 - https://learn.microsoft.com/power-bi/transform-model/desktop-measure-copilot-descriptions
 - https://learn.microsoft.com/fabric/data-science/semantic-model-best-practices
 
-Next: [phase 4, prep for AI](04-prep-for-ai.md)
+Next: [phase 3b, audit the model](03b-readiness-audit.md), then
+[phase 4, prep for AI](04-prep-for-ai.md)

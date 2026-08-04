@@ -1,6 +1,7 @@
 # Copy-paste prompts
 
-One block per phase. Paste them into the tool named in the heading. Nothing here needs
+One block per phase from phase 1 onward. Phase 0 is setup and needs no prompt. Paste them
+into the tool named in the heading. Nothing here needs
 editing except the workspace name.
 
 Prompts to GitHub Copilot Chat run in VS Code with the Fabric MCP servers connected.
@@ -77,7 +78,28 @@ Explain this query.
 
 ---
 
-## Phase 4, prep for AI (Power BI, Prep data for AI)
+## Phase 3b, readiness audit (GitHub Copilot Chat, agent `model-readiness-auditor`)
+
+```text
+Audit the ContosoCoffee semantic model against semantic-model/ai-readiness-checklist.md.
+For every item I cannot tick, give me a row with severity (Critical, Important,
+Recommended), the object, the question in validation/question-bank.md it will break, and
+the fix. Rank by severity. Do not fix anything yet.
+```
+
+```text
+Which of my measure descriptions put the business meaning after the first 200 characters?
+Rewrite those so the meaning comes first and the caveats come last.
+```
+
+Optional automated run, community project rather than a Microsoft product:
+[Semantic Model AI Readiness Analyzer](https://github.com/SoomroFarhanH/SemanticModelBPforAI/tree/main/SemanticModel-AI-Readiness-Analyzer).
+Import it into a Fabric workspace notebook, with Build permission on the published
+model.
+
+---
+
+## Phase 4, prep for AI (Power BI, Prep data for AI, preview)
 
 Paste into the **AI instructions** box. Full text is in
 [`semantic-model/ai-instructions.md`](../../semantic-model/ai-instructions.md).

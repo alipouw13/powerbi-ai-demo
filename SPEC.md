@@ -1,9 +1,10 @@
 # SPEC: Power BI AI Demo (Contoso Coffee)
 
-**Status:** v1.0
+**Status:** v1.1
 **Audience:** anyone who wants to show, or learn, how AI shows up across the whole
 Power BI lifecycle on Microsoft Fabric.
-**Runtime:** about 90 minutes end to end, first time. About 25 minutes once you know it.
+**Runtime:** about 170 minutes end to end, first time, including setup. The short path
+(phases 0, 3, 3b, 4, 6, 8) is about 110 minutes.
 
 ---
 
@@ -56,7 +57,8 @@ The data is generated deterministically (fixed seed) so that the ground truth nu
 | 1 | Provision | **Fabric MCP** (Core, remote) drives workspace + lakehouse creation from chat | VS Code + GitHub Copilot |
 | 2 | Load | **GitHub Copilot** writes the ingestion notebook | VS Code / Fabric notebook |
 | 3 | Model | **GitHub Copilot** writes DAX measures and TMDL metadata; **DAX Copilot** explains and refines | VS Code, Power BI Desktop |
-| 4 | Prep for AI | **Prep data for AI**: AI instructions, AI data schema, verified answers; **Approved for Copilot** | Power BI Desktop / service |
+| 3b | Readiness audit | None, deliberately. The model is scored against the Microsoft Learn optimization checklist before the AI is scored | Power BI Desktop, optional Fabric notebook |
+| 4 | Prep for AI | **Prep data for AI** (preview): AI instructions, AI data schema, verified answers; **Approved for Copilot** (preview) | Power BI Desktop / service |
 | 5 | Report | **Power BI Copilot** builds report pages from a prompt | Power BI Desktop / service |
 | 6 | Insights | **Copilot pane** summarises; **standalone Copilot** answers cross-item questions | Power BI service |
 | 7 | Agents | **Fabric data agent** over the model + lakehouse; **Fabric IQ ontology** as the shared business vocabulary | Fabric portal |
@@ -65,12 +67,19 @@ The data is generated deterministically (fixed seed) so that the ground truth nu
 Phase 7's ontology step is optional. It is a preview feature and needs its own tenant
 setting. The demo is complete and coherent without it.
 
+Phase 3b is a gate rather than a phase. It contains no AI, on purpose. The demo argues
+that model quality decides AI quality, so the model gets scored first, against
+[Optimize your semantic model for Copilot in Power BI](https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data).
+The output is a written list of predicted failures, which pass A then confirms or
+refutes. Optionally automated with the community Semantic Model AI Readiness Analyzer,
+which is explicitly labelled as a community project throughout.
+
 ## 6. Personas
 
 | Persona | Phases | What they care about |
 | --- | --- | --- |
 | Data engineer | 1, 2 | Getting governed data into OneLake without clicking through 20 blades |
-| BI developer | 3, 4, 5 | Model quality, DAX, and making Copilot trustworthy |
+| BI developer | 3, 3b, 4, 5 | Model quality, DAX, and making Copilot trustworthy |
 | Business user | 6 | Getting an answer without knowing what a measure is |
 | Data / AI architect | 7, 8 | Agents, reuse, and whether any of this can be trusted |
 
@@ -91,20 +100,26 @@ setting. The demo is complete and coherent without it.
 | Approved for Copilot | Preview | 4 |
 | Fabric data agent | GA | 7 |
 | Fabric IQ ontology | Preview | 7 (optional) |
+| Semantic Model AI Readiness Analyzer (community, not Microsoft) | Community v1.0 | 3b (optional) |
 
 Status is captured per phase in the docs and must be re-checked against Microsoft Learn
 before each delivery. Preview features move.
+
+The readiness analyzer is a third-party community notebook, not a Microsoft product and
+not supported by Microsoft. It is linked, never vendored into this repo, and it is
+labelled as community at every point of use. The Microsoft-supported layer underneath it
+is [Semantic Link Labs](https://github.com/microsoft/semantic-link-labs).
 
 ---
 
 ## 8. Repository contract
 
 ```
-.github/agents/      specialist agents, one per phase plus a validator
-.github/prompts/     copy-paste prompts, one file per phase
+.github/agents/      11 specialist agents: an orchestrator, then one or more per phase from 1 onward
+.github/prompts/     copy-paste prompts, a single README with one section per phase
 data/                synthetic CSVs plus the generator that produced them
 fabric/              notebook to land the CSVs as Lakehouse tables
-semantic-model/      DAX measures, TMDL metadata, AI instructions
+semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
 validation/          question bank, ground truth script, scorecard
 docs/                one short guide per phase
 README.md            the how-to. Start here.
@@ -119,6 +134,8 @@ SPEC.md              this file.
 - No secrets, tenant IDs, workspace IDs, or real customer data in the repo.
 - No em dashes in any content.
 - Preview features are always labelled as preview at the point of use.
+- Community and third-party assets are always labelled as such, and are linked rather
+  than copied into this repo.
 
 ---
 
@@ -135,6 +152,9 @@ The demo is successful when all of the following are true.
    recorded in `validation/scorecard.md`.
 6. The score before phase 4 and after phase 4 are both recorded, so the audience can see
    what the modelling work bought them. This contrast is the point of the demo.
+7. Phase 3b produces a written list of predicted failures before pass A runs, and at
+   least one of those predictions is confirmed by pass A. The audit has to earn its
+   place by being right about something.
 
 ## 10. The accuracy loop
 

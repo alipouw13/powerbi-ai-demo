@@ -58,7 +58,7 @@ Five passes are defined:
 
 | Pass | Surface | Run after |
 | --- | --- | --- |
-| A | Copilot pane, before Prep data for AI | phase 3 |
+| A | Copilot pane, before Prep data for AI | phase 3b |
 | B | Copilot pane, after Prep data for AI | phase 4 |
 | C | Standalone Copilot (preview) | phase 6 |
 | D | Fabric data agent | phase 7 |
@@ -66,6 +66,12 @@ Five passes are defined:
 
 **B minus A is the headline.** It is the only number in this demo that measures the value
 of the modelling work rather than the value of the product.
+
+Pass A also settles the [phase 3b](03b-readiness-audit.md) audit. Every finding you
+recorded there came with a predicted failure attached. Go back and mark which
+predictions pass A confirmed. A confirmed prediction is the strongest evidence this demo
+produces, because it shows the failure was visible in the metadata before anyone asked
+the AI anything.
 
 ---
 
@@ -83,6 +89,14 @@ the fields, measures, and filters it used. Then find the cause in this table.
 | Picks the wrong column with a similar name | Two columns, no descriptions | Add descriptions, or exclude one via the AI data schema |
 | Correct number, useless wording | Nothing wrong with the model | Verified answer, and log it as a patch |
 | Ignores a measure entirely | Not in the AI data schema | Include it |
+| Uses the wrong table's `Date` column | Duplicate visible column names across tables | Rename or hide one, or exclude it from the AI data schema |
+| Never uses `YTD` or `PY` | Calculation items are not in model metadata | List and explain the items in the calculation group column description |
+| Cannot find a number that exists in a report | It is a report-scoped measure | Move it into the semantic model |
+| Description is there but ignored | The meaning starts after character 200 | Rewrite so the meaning comes first |
+
+Rows 8 to 11 are the ones that come out of the
+[readiness checklist](../semantic-model/ai-readiness-checklist.md). If you ran
+[phase 3b](03b-readiness-audit.md) properly, you already predicted them.
 
 Log every one of these in the failure log table in the scorecard, with the cause named as
 a piece of metadata, not as "Copilot got it wrong".
@@ -109,6 +123,7 @@ Run through the checklist at the bottom of
 - `python validation/ground_truth.py` runs clean
 - Every number in `docs/` matches that output
 - Every preview feature is labelled preview at the point of use
+- Every community or third-party asset is labelled as such, and linked not vendored
 - Every product claim links to a live Microsoft Learn page
 - No tenant IDs, workspace IDs, capacity IDs, or real data anywhere
 

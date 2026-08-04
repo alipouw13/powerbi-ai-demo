@@ -50,6 +50,30 @@ can be sent. One documented number worth knowing: only the **first 200 character
 description are used, so put the important words first. This demo is nowhere near any
 limit, but the audience will ask.
 
+## Three more from the Learn optimization page
+
+Not in the twelve above because this model does not need all of them, but real models
+do, and
+[Optimize your semantic model for Copilot](https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data)
+lists them.
+
+1. **Hierarchies** on dimensions people drill into. `Year > Quarter > Month > Day` on
+   `dim_date`.
+2. **Calculation group descriptions.** Model metadata does not include calculation items,
+   so the calculation group column's description is the only place Copilot can learn
+   that `YTD`, `MTD` and `PY` exist. Cut at 200 characters too, so list first, explain
+   second.
+3. **No duplicate visible column names across tables.** Two tables both exposing `Date`
+   lets the generated query pick the wrong one, and return a wrong number with no error.
+
+## Handover
+
+When the model is built, hand to `model-readiness-auditor` before `copilot-readiness`.
+That agent runs
+[`semantic-model/ai-readiness-checklist.md`](../../semantic-model/ai-readiness-checklist.md)
+and returns a ranked list of predicted failures. Fix its Critical findings before anyone
+scores pass A.
+
 ## Tools you can use
 
 - **GitHub Copilot in VS Code** on the PBIP or TMDL folder. Good at bulk descriptions

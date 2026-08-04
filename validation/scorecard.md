@@ -11,13 +11,33 @@ Get the expected values with `python validation/ground_truth.py`.
 
 | Pass | Surface | Run after | Date | Score |
 | --- | --- | --- | --- | --- |
-| A | Copilot pane, before Prep data for AI | phase 3 | | / 15 |
+| A | Copilot pane, before Prep data for AI | phase 3b | | / 15 |
 | B | Copilot pane, after Prep data for AI | phase 4 | | / 15 |
 | C | Standalone Copilot (preview) | phase 6 | | / 15 |
 | D | Fabric data agent | phase 7 | | / 15 |
 | E | Data agent plus ontology (preview, optional) | phase 7 | | / 15 |
 
 The number that matters is B minus A. That is what the modelling work bought you.
+
+---
+
+## Readiness audit, phase 3b
+
+Filled in **before** pass A, from
+[`semantic-model/ai-readiness-checklist.md`](../semantic-model/ai-readiness-checklist.md).
+
+| Severity | Finding | Object | Predicted to break | Confirmed by pass A |
+| --- | --- | --- | --- | --- |
+| | | | | |
+
+Severity: Critical (wrong answer, silently), Important (vague, refused, inconsistent),
+Recommended (quality and maintenance, not correctness).
+
+Fix every Critical finding before you run pass A. The Important and Recommended ones are
+better left in place until after pass A, because they are the demo.
+
+An audit finding with no predicted failure is a style note. Delete it or attach a
+question number to it.
 
 ---
 
@@ -78,6 +98,7 @@ Run these before presenting or publishing.
 - [ ] `python validation/ground_truth.py` runs clean
 - [ ] Every number in `docs/` and `README.md` matches the ground truth output
 - [ ] Every preview feature is labelled preview at the point of use
+- [ ] Every community or third-party asset is labelled as such, and linked not vendored
 - [ ] Every product claim links to a live Microsoft Learn page
 - [ ] No tenant IDs, workspace IDs, capacity IDs, or real data anywhere
 - [ ] No em dashes anywhere

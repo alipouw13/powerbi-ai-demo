@@ -1,8 +1,8 @@
 # Power BI AI Demo: build, publish, use, and validate
 
 A small, end-to-end demo of what AI actually does across the whole Power BI lifecycle on
-Microsoft Fabric. One synthetic dataset, eight short phases, and a scored accuracy loop
-at the end so you can prove the answers were right.
+Microsoft Fabric. One synthetic dataset, nine short phases and one gate, and a scored
+accuracy loop at the end so you can prove the answers were right.
 
 It covers **Power BI Copilot**, **GitHub Copilot**, the **Fabric MCP servers**, a
 **Fabric data agent**, and optionally a **Fabric IQ ontology**.
@@ -38,23 +38,26 @@ CSVs  ->  Lakehouse  ->  semantic model  ->  report  ->  Copilot  ->  data agent
 
 ---
 
-## The eight phases
+## The nine phases, plus one gate
 
 | # | Phase | Time | What the AI does | Guide |
 | --- | --- | --- | --- | --- |
 | 0 | Setup | 20 min | Nothing yet. Capacity, tenant settings, MCP servers. | [00-setup](docs/00-setup.md) |
 | 1 | Provision | 10 min | **Fabric MCP** creates the workspace and lakehouse from a chat prompt | [01-provision](docs/01-provision.md) |
-| 2 | Load | 15 min | **GitHub Copilot** writes the ingestion notebook | [02-load](docs/02-load.md) |
+| 2 | Load | 10 min | **GitHub Copilot** writes the ingestion notebook | [02-load](docs/02-load.md) |
 | 3 | Model | 25 min | **GitHub Copilot** writes DAX measures and descriptions; **DAX Copilot** explains them | [03-model](docs/03-model.md) |
-| 4 | Prep for AI | 20 min | **Prep data for AI**: AI instructions, AI data schema, verified answers, Approved for Copilot | [04-prep-for-ai](docs/04-prep-for-ai.md) |
+| 3b | Readiness audit | 15 min | Nothing. Score the model against the Microsoft Learn checklist before you score the AI. | [03b-readiness-audit](docs/03b-readiness-audit.md) |
+| 4 | Prep for AI | 20 min | **Prep data for AI** (preview): AI instructions, AI data schema, verified answers, Approved for Copilot (preview) | [04-prep-for-ai](docs/04-prep-for-ai.md) |
 | 5 | Report | 15 min | **Power BI Copilot** builds report pages from a prompt | [05-report](docs/05-report.md) |
 | 6 | Insights | 15 min | **Copilot pane** and **standalone Copilot** answer business questions | [06-insights](docs/06-insights.md) |
 | 7 | Agents | 25 min | **Fabric data agent** over the model and lakehouse; **Fabric IQ ontology**, optional | [07-agents](docs/07-agents.md) |
 | 8 | Validate | 15 min | Nothing. This is the human check on all of the above. | [08-validate](docs/08-validate.md) |
 
-About 90 minutes the first time. Around 25 once you know it.
+Those times add up to about **170 minutes** the first time, including setup. Phase 7's
+optional ontology step adds another 20.
 
-**Short on time?** Phases 0, 3, 4, 6, 8 is the smallest run that still makes the point.
+**Short on time?** Phases 0, 3, 3b, 4, 6, 8 is the smallest run that still makes the
+point, and comes to about 110 minutes.
 
 ---
 
@@ -123,7 +126,7 @@ that script, never from prose written by hand.
 
 | Pass | Surface | After |
 | --- | --- | --- |
-| A | Copilot pane, before Prep data for AI | phase 3 |
+| A | Copilot pane, before Prep data for AI | phase 3b |
 | B | Copilot pane, after Prep data for AI | phase 4 |
 | C | Standalone Copilot (preview) | phase 6 |
 | D | Fabric data agent | phase 7 |
@@ -137,9 +140,47 @@ Three rules that make the loop honest:
 
 ---
 
+## Score the model before you score the AI
+
+If the argument is that model quality decides AI quality, then measuring model quality
+should come first. Otherwise you are asserting the thing you claim to be proving.
+
+Microsoft publishes exactly the list you need:
+[Optimize your semantic model for Copilot in Power BI](https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data).
+Five areas: model structure, measures and KPIs, columns and data quality, refresh and
+security and metadata, and DAX query considerations. None of it is AI-specific advice.
+It is the modelling work a good BI developer already does, which is the whole point.
+
+[`semantic-model/ai-readiness-checklist.md`](semantic-model/ai-readiness-checklist.md)
+turns that page into a checklist with the Contoso Coffee specifics filled in, and
+[phase 3b](docs/03b-readiness-audit.md) is the fifteen minutes you spend running it.
+
+You come out of it holding a written list of **predicted failures**. Pass A then tells
+you which predictions were right. That is a much better moment than a failure nobody saw
+coming.
+
+Three items on it catch nearly everyone:
+
+- Copilot uses only the **first 200 characters** of a description, so put the business
+  meaning first and the caveats last.
+- **Calculation items are not in the model metadata at all.** The only place Copilot can
+  learn that `YTD`, `MTD` and `PY` exist is the calculation group column's description.
+- **A measure defined in a report is invisible** to anything reading the semantic model,
+  including data agents.
+
+If you want it scored automatically, the community
+[Semantic Model AI Readiness Analyzer](https://github.com/SoomroFarhanH/SemanticModelBPforAI/tree/main/SemanticModel-AI-Readiness-Analyzer)
+is a Fabric notebook that runs most of the checklist and ranks findings Critical,
+Important, Recommended. It is a community project, not a Microsoft product and not
+supported by Microsoft. It is built on
+[Semantic Link Labs](https://github.com/microsoft/semantic-link-labs), which is.
+
+---
+
 ## Specialist agents
 
-Each phase has an agent definition in [`.github/agents/`](.github/agents). They are
+Every phase from 1 onward has an agent definition in [`.github/agents/`](.github/agents),
+plus an orchestrator that routes between them. Phase 0 is setup, so it has no agent. They are
 prompt files, so they work in GitHub Copilot in VS Code and read fine as documentation
 if you would rather do it by hand.
 
@@ -149,6 +190,7 @@ if you would rather do it by hand.
 | `fabric-provisioner` | Phase 1, workspace and lakehouse via Fabric MCP |
 | `data-loader` | Phase 2, CSVs to Lakehouse tables |
 | `semantic-model-author` | Phase 3, DAX, relationships, metadata |
+| `model-readiness-auditor` | Phase 3b, the AI readiness audit before pass A |
 | `copilot-readiness` | Phase 4, Prep data for AI, Approved for Copilot |
 | `report-builder` | Phase 5, Copilot-authored report pages |
 | `insights-analyst` | Phase 6, consumption and the question bank |
@@ -164,11 +206,11 @@ Copy-paste prompts for each phase are in
 ## What is in the repo
 
 ```
-.github/agents/      one specialist agent per phase, plus a validator
-.github/prompts/     copy-paste prompts, one section per phase
+.github/agents/      11 specialist agents: an orchestrator, then one or more per phase from 1 onward
+.github/prompts/     copy-paste prompts, one section per phase from 1 onward
 data/                synthetic CSVs and the seeded generator that made them
 fabric/              notebook to land the CSVs as Lakehouse tables
-semantic-model/      DAX measures and the AI instructions text
+semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
 validation/          question bank, ground truth script, scorecard
 docs/                one short guide per phase
 SPEC.md              the demo contract: phases, personas, success criteria

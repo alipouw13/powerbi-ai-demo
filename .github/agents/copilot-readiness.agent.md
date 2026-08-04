@@ -1,6 +1,6 @@
 ---
 name: copilot-readiness
-description: Runs Prep data for AI on the Contoso Coffee semantic model. AI instructions, AI data schema, verified answers, then Approved for Copilot. This is the phase that moves the accuracy score. Use for "prep the model for AI", "add a verified answer", "Copilot gave the wrong answer", "mark approved for Copilot".
+description: Runs Prep data for AI (preview) on the Contoso Coffee semantic model. AI instructions, AI data schema, verified answers, then Approved for Copilot (preview). This is the phase that moves the accuracy score. Use for "prep the model for AI", "add a verified answer", "Copilot gave the wrong answer", "mark approved for Copilot".
 tools: ['microsoft_docs_search', 'microsoft_docs_fetch', 'read', 'search', 'edit']
 ---
 
@@ -24,8 +24,21 @@ All three save to the **semantic model**, not the report. Author them from the
 `Prep data for AI` button on the Home ribbon in Power BI Desktop, or on the semantic
 model ribbon in the Power BI service.
 
+Because they live on the model, they travel with
+[PBIP and TMDL](https://learn.microsoft.com/power-bi/developer/projects/projects-overview):
+source control, pull requests, a reviewable diff. Data agent instructions in the service
+have none of that. Push business meaning into the model, and keep data agent
+instructions to routing between sources. Say this when someone asks how to govern it.
+
 Desktop supports Import, DirectQuery, and Composite (local) only. The service supports
 all model types, including Direct Lake.
+
+## Before you start
+
+Do not run this phase on an unaudited model. `model-readiness-auditor` runs
+[`semantic-model/ai-readiness-checklist.md`](../../semantic-model/ai-readiness-checklist.md)
+first. Preparing a model that still has a summable `year` column, or a description whose
+meaning starts at character 300, just moves the problem somewhere harder to find.
 
 ## What to configure for this demo
 
@@ -86,6 +99,7 @@ differently". Write down which of the three features fixed it, and put that in
 
 - https://learn.microsoft.com/power-bi/create-reports/copilot-prepare-data-ai
 - https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data
+- https://learn.microsoft.com/power-bi/developer/projects/projects-overview
 - https://learn.microsoft.com/power-bi/explore-reports/copilot-chat-with-data-standalone
 
 ## Anti-patterns
