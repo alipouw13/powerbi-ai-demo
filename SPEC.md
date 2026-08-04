@@ -115,9 +115,10 @@ is [Semantic Link Labs](https://github.com/microsoft/semantic-link-labs).
 ## 8. Repository contract
 
 ```
-.github/agents/      11 specialist agents: an orchestrator, then one or more per phase from 1 onward
+.github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
 .github/prompts/     copy-paste prompts, a single README with one section per phase
 data/                synthetic CSVs plus the generator that produced them
+diagram/             the architecture diagram plus the generator and icon resolver that produce it
 fabric/              notebook to land the CSVs as Lakehouse tables
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
 validation/          question bank, ground truth script, scorecard
@@ -125,6 +126,13 @@ docs/                one short guide per phase
 README.md            the how-to. Start here.
 SPEC.md              this file.
 ```
+
+The architecture diagram is **generated, never hand-drawn**, so it cannot drift from the
+phases it describes. Its icons come from the official Microsoft Azure and Fabric icon
+sets and are embedded as base64, so the committed `.drawio`, `.svg` and `.png` open
+offline with nothing installed. Only regenerating needs the icon sets. Processes such as
+gate 3b and the accuracy loop are drawn without product icons, deliberately: giving a
+human step a product glyph misrepresents the architecture.
 
 ### Rules
 
@@ -155,6 +163,9 @@ The demo is successful when all of the following are true.
 7. Phase 3b produces a written list of predicted failures before pass A runs, and at
    least one of those predictions is confirmed by pass A. The audit has to earn its
    place by being right about something.
+8. `python diagram/build_architecture.py` regenerates the architecture diagram, every
+   icon resolves against the official sets, and the result matches the phase table. A
+   diagram that disagrees with `README.md` is a defect.
 
 ## 10. The accuracy loop
 

@@ -30,11 +30,15 @@ after. The gap between those two scores is the entire demo. Everything else is c
 **Contoso Coffee**, a fictional retailer. 8 stores, 3 regions, 12 products, 2 years of
 daily sales. About 64,000 rows, which is deliberately tiny so nothing takes long.
 
-```
-CSVs  ->  Lakehouse  ->  semantic model  ->  report  ->  Copilot  ->  data agent
-                              ^                                          |
-                              +--------- the accuracy loop --------------+
-```
+![Power BI AI lifecycle architecture](diagram/powerbi-ai-demo-architecture.png)
+
+Four columns, left to right: the tools on your machine, the Fabric workspace they create,
+the work that makes the model AI ready, and the four front doors onto it. Underneath,
+the accuracy loop, with the one arrow that matters running back into the model rather
+than into the prompt.
+
+The diagram is generated, not drawn, so it stays true as the demo changes. See
+[`diagram/`](diagram/) to regenerate it or point it at your own data.
 
 ---
 
@@ -180,13 +184,15 @@ supported by Microsoft. It is built on
 ## Specialist agents
 
 Every phase from 1 onward has an agent definition in [`.github/agents/`](.github/agents),
-plus an orchestrator that routes between them. Phase 0 is setup, so it has no agent. They are
+plus an orchestrator that routes between them and an architect that draws the picture.
+Phase 0 is setup, so it has no agent. They are
 prompt files, so they work in GitHub Copilot in VS Code and read fine as documentation
 if you would rather do it by hand.
 
 | Agent | Owns |
 | --- | --- |
 | `demo-orchestrator` | Runs the whole demo, routes to the others |
+| `solution-architect` | The architecture diagram, and adapting it to your own data |
 | `fabric-provisioner` | Phase 1, workspace and lakehouse via Fabric MCP |
 | `data-loader` | Phase 2, CSVs to Lakehouse tables |
 | `semantic-model-author` | Phase 3, DAX, relationships, metadata |
@@ -206,9 +212,10 @@ Copy-paste prompts for each phase are in
 ## What is in the repo
 
 ```
-.github/agents/      11 specialist agents: an orchestrator, then one or more per phase from 1 onward
+.github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
 .github/prompts/     copy-paste prompts, one section per phase from 1 onward
 data/                synthetic CSVs and the seeded generator that made them
+diagram/             the architecture diagram and the generator that produces it
 fabric/              notebook to land the CSVs as Lakehouse tables
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
 validation/          question bank, ground truth script, scorecard
