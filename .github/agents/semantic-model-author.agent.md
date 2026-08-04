@@ -80,14 +80,18 @@ scores pass A.
   and at drafting measures from a written spec.
 - **DAX query view with Copilot** in Power BI Desktop or the service. Ask it to write a
   query, run it, then ask it to explain the query back. That round trip is the demo.
-- **Power BI Modeling MCP server** (public preview,
+- **Power BI MCP server, local** (preview,
   https://github.com/microsoft/powerbi-modeling-mcp). Install the
   `analysis-services.powerbi-modeling-mcp` VS Code extension. It exposes
   `measure_operations`, `column_operations`, `relationship_operations`,
   `dax_query_operations` and more against a live model in Desktop, in a Fabric
-  workspace, or a PBIP folder. Microsoft Learn specifically recommends it for
-  generating business-friendly names before you build a data agent. It needs Write
-  permission on the model, and it has a `--readonly` flag.
+  workspace, or a PBIP folder. **Default tool for this phase** — Learn lists bulk
+  best-practice application and agentic TMDL refactoring as its use cases, and the
+  twelve-item list above is exactly that shape of work. It needs Write permission, it has
+  a `--readonly` flag, and you should prefer pointing it at a PBIP folder in source
+  control so every AI edit is a reviewable diff. Always re-run ground truth after it
+  writes. Do not confuse it with the *remote* Power BI MCP server, which chats with a
+  published model and consumes Copilot capacity.
 
 ## Verification
 
@@ -97,6 +101,7 @@ minimum: `Net Revenue` equals `$412,918.50`, `Gross Margin %` equals `68.65%`,
 
 ## Docs
 
+- https://learn.microsoft.com/power-bi/developer/mcp/mcp-servers-overview
 - https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data
 - https://learn.microsoft.com/power-bi/natural-language/q-and-a-best-practices
 - https://learn.microsoft.com/dax/dax-copilot
@@ -110,3 +115,7 @@ minimum: `Net Revenue` equals `$412,918.50`, `Gross Margin %` equals `68.65%`,
 - Leaving `year` summable and then blaming the AI.
 - Exposing 60 columns because hiding them felt like work.
 - Writing DAX from memory when DAX Copilot plus a ground-truth check is faster.
+- Letting the MCP server write to a production model, or accepting its edits without
+  re-running ground truth.
+- Clicking through 30 summarisation dropdowns by hand when the MCP server does bulk
+  operations in one prompt.

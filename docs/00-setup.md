@@ -112,16 +112,27 @@ Recommended. It is how you keep this demo honest, because preview features move 
 menus change. If your VS Code build supports it, add the Microsoft Learn MCP server so
 Copilot can check current documentation rather than answer from memory.
 
-### Power BI Modeling MCP Server, public preview, optional
+### Power BI MCP server, local, preview — recommended for phase 3
 
 Install the `analysis-services.powerbi-modeling-mcp` VS Code extension. It lets Copilot
-edit a live semantic model: measures, columns, relationships, DAX queries. Microsoft
-Learn specifically recommends it for generating business-friendly names before you build
-a data agent.
+edit a semantic model in natural language: measures, columns, relationships, data
+categories, summarisation, plus DAX query validation. It works against Power BI Desktop,
+a Fabric workspace model, or a PBIP/TMDL folder.
+
+This is the fastest way to do [phase 3](03-model.md), and Learn lists "apply modeling
+best practices in bulk" as a first-class use case. It writes, so it needs Write
+permission on the model, it has a `--readonly` flag, and it is best pointed at a PBIP
+folder in source control so every edit is a reviewable diff.
+
+There is also a **remote** Power BI MCP server, for chatting with a published model
+rather than authoring one. It needs a tenant setting enabled by an admin and its query
+generation consumes Copilot capacity. Not required for this demo.
 
 Source: https://github.com/microsoft/powerbi-modeling-mcp
 
 Docs:
+- https://learn.microsoft.com/power-bi/developer/mcp/mcp-servers-overview
+- https://learn.microsoft.com/power-bi/developer/mcp/remote-mcp-server-get-started
 - https://learn.microsoft.com/rest/api/fabric/articles/mcp-servers/what-is-fabric-mcp-server
 - https://learn.microsoft.com/rest/api/fabric/articles/mcp-servers/core-remote/get-started-core
 - https://learn.microsoft.com/rest/api/fabric/articles/mcp-servers/pro-dev-local/get-started-local

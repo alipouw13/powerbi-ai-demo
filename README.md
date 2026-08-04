@@ -237,7 +237,8 @@ Preview features move. Re-check before you present.
 | Fabric data agent | GA |
 | Fabric Core MCP Server, remote | Preview |
 | Fabric MCP Server, local | Preview |
-| Power BI Modeling MCP Server | Public preview |
+| Power BI MCP Server, local (model authoring) | Preview |
+| Power BI MCP Server, remote (chat with data) | Preview |
 | Copilot in Power BI, standalone | Preview |
 | Prep data for AI | Preview |
 | Approved for Copilot | Preview |
