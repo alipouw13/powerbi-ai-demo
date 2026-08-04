@@ -3,7 +3,8 @@
 **Agent:** `semantic-model-author`
 **Time:** 25 minutes
 **AI on show:** Power BI MCP server (local, preview) driving the model from Copilot Chat,
-GitHub Copilot for measures and descriptions, DAX query view with Copilot
+Copilot in Fabric for measures and descriptions, GitHub Copilot to review the set,
+DAX query view with Copilot
 
 This is the phase that decides whether phases 5, 6 and 7 succeed. Copilot cannot be
 better than the metadata you give it. Everything after this is downstream of the work
@@ -31,7 +32,8 @@ which is the point of the demo.
 | Surface | Use it for | Status |
 | --- | --- | --- |
 | **Power BI MCP server, local** | Bulk edits: relationships, descriptions, summarisation, data categories, renames, DAX validation. Works against Desktop, a Fabric workspace, or a PBIP/TMDL folder. | Preview |
-| GitHub Copilot in VS Code on the PBIP/TMDL folder | Drafting text, reviewing diffs, anything that is really a file edit | GA |
+| Copilot in Fabric, model view and DAX query view | Suggesting measures, writing measure descriptions, critiquing the model in place | GA |
+| GitHub Copilot in VS Code on the PBIP/TMDL folder | Drafting text, reviewing diffs, auditing the measure set, anything that is really a file edit | GA |
 | DAX query view with Copilot | Writing and explaining a single query | GA |
 | Power BI Desktop UI | The five clicks that are faster than a prompt | GA |
 
@@ -106,22 +108,80 @@ Copilot cannot join what you did not join.
 
 ## Measures
 
-There are 18, in [`semantic-model/measures.dax`](../semantic-model/measures.dax). Add
-them all. Every one has a description in the file, and the description matters: **Copilot
+The reference set is 18 measures, in
+[`semantic-model/measures.dax`](../semantic-model/measures.dax). You can paste them in —
+but the demo is better if you let Copilot in Fabric write them and use that file as the
+answer key. Every measure needs a description, and the description matters: **Copilot
 reads measure descriptions, and uses only the first 200 characters.**
 
-### The GitHub Copilot version
+### Let Copilot in Fabric propose them first
 
-Open the repo in VS Code and ask:
+Open the `ContosoCoffee` semantic model in the Fabric service, switch to **DAX query
+view**, and open Copilot from the ribbon. It offers three starters; take
+**`Suggest measures`**.
+
+![DAX query view in Fabric with the Copilot prompt box open, showing the Suggest measures, Explain a DAX topic, and Write a DAX query starters](images/03-dax-query-view-copilot-suggest-measures.png)
+
+Copilot reads the model — the four tables, the relationships you just created, the column
+names and types — and writes DAX for measures it thinks the model is missing. Run what it
+returns, check the numbers, then use `Update model with changes` to push the ones you want
+into the model.
+
+This is the better demo moment than pasting 18 measures from a file. It shows Copilot
+authoring against your model instead of authoring in a vacuum, and it shows why the
+modelling work above matters: with no relationships, `Suggest measures` returns very
+little worth keeping.
+
+### Then have GitHub Copilot review the set
+
+Copilot in Fabric suggests; the MCP server audits. With the local Power BI modeling MCP
+server still connected from the setup above, ask GitHub Copilot in VS Code:
 
 ```text
-Read semantic-model/measures.dax. For each measure, write a one sentence description
-under 200 characters that says what it measures and when someone should use it. Return
-a markdown table of measure name and description so I can paste them into Power BI.
+review current measures and suggest additional measures. do not duplicate and do not add
+useless measures. if all measures are there then tell me such.
 ```
 
-Power BI Desktop can also generate descriptions itself: Model view, select a measure,
-`Create with Copilot` in the Description box.
+The interesting outcome is the one where it says the set is complete. An agent that will
+tell you "there is nothing to add" is an agent worth trusting when it does propose
+something. Anything it does propose, check against
+[`semantic-model/measures.dax`](../semantic-model/measures.dax) before you accept it — that
+file is the reference set of 18 and the numbers in
+[Verify before you leave this phase](#verify-before-you-leave-this-phase) are calculated
+from it.
+
+### Descriptions: ask Copilot in the Fabric model view
+
+Descriptions are where most models are thinnest, and they are the thing Copilot actually
+reads at query time. Do them here, while you are still in the model, not later.
+
+In **Model view** in Fabric, open the Copilot pane and paste:
+
+```text
+Help me add or replace descriptions for each measure. Consider the following rules:
+
+- insert or replace the description that should appear above the measure code and after ///
+- use business friendly terms
+- describe the DAX code in the description in business-friendly terms; do not copy the
+  code into the description
+- use the measure name and the other measures as context
+- the description should not be longer than 500 characters
+```
+
+![Model view in Fabric with the Copilot pane open and the measure description prompt pasted into the prompt box](images/03-model-view-copilot-measure-descriptions.png)
+
+Two things to hold in mind when you review what comes back.
+
+The 500 character limit is a **drafting** limit, not the limit that matters at query time.
+Copilot reads only the **first 200 characters** of a description, so the first sentence has
+to carry the business meaning on its own and the rest is for the humans reading the TMDL.
+
+And `///` is the TMDL and DAX description syntax, so this prompt produces something you can
+commit. Descriptions written this way land in the PBIP folder, go through a pull request,
+and show up in a diff.
+
+Power BI Desktop can also generate descriptions one at a time: Model view, select a
+measure, `Create with Copilot` in the Description box.
 
 ### The DAX Copilot round trip
 

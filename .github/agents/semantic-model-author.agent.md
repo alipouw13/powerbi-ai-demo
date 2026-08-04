@@ -21,9 +21,12 @@ Star schema. `fact_sales` in the middle, three dimensions around it.
 
 Mark `dim_date` as the date table on `dim_date[date_key]`.
 
-Measures live in `semantic-model/measures.dax`. There are 18. Every one carries a
-description, because Copilot reads measure descriptions and uses only the first 200
-characters.
+Measures live in `semantic-model/measures.dax`. There are 18, and that file is the answer
+key rather than a paste source: in the demo, Copilot in Fabric DAX query view proposes
+measures via `Suggest measures`, GitHub Copilot with the modeling MCP server reviews the
+resulting set for gaps and duplicates, and `measures.dax` is what you check the result
+against. Every measure carries a description, because Copilot reads measure descriptions
+and uses only the first 200 characters.
 
 ## The twelve modelling actions that decide AI quality
 
@@ -76,8 +79,14 @@ scores pass A.
 
 ## Tools you can use
 
-- **GitHub Copilot in VS Code** on the PBIP or TMDL folder. Good at bulk descriptions
-  and at drafting measures from a written spec.
+- **Copilot in Fabric**, in the semantic model editing experience. DAX query view offers
+  `Suggest measures`, which writes DAX against the live model and lands it with
+  `Update model with changes`. Model view has a Copilot pane that will write or replace
+  the description on every measure in one prompt. This is the first stop for measures and
+  descriptions.
+- **GitHub Copilot in VS Code** on the PBIP or TMDL folder. Good at reviewing the measure
+  set for gaps and duplicates, bulk descriptions, and drafting measures from a written
+  spec.
 - **DAX query view with Copilot** in Power BI Desktop or the service. Ask it to write a
   query, run it, then ask it to explain the query back. That round trip is the demo.
 - **Power BI MCP server, local** (preview,

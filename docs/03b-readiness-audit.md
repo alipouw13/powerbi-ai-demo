@@ -159,28 +159,14 @@ Suggest improvements to this semantic model.
 Deliberately open-ended. Use it as a second opinion on the checklist, then keep only the
 findings you can map back to a Learn area in the table above.
 
-**Fill in the descriptions, which is where most models are thinnest.**
+**Fill in the descriptions — already done, in phase 3.**
 
-```text
-Help me add or replace descriptions for each measure. Consider the following rules:
-
-- insert or replace the description that should appear above the measure code and after ///
-- use business friendly terms
-- describe the DAX code in the description in business-friendly terms; do not copy the
-  code into the description
-- use the measure name and the other measures as context
-- the description should not be longer than 500 characters
-```
-
-Two things to hold in mind when you review what comes back.
-
-The 500 character limit is a **drafting** limit, not the limit that matters at query time.
-Copilot reads only the **first 200 characters** of a description, so the first sentence has
-to carry the business meaning on its own and the rest is for the humans reading the TMDL.
-
-And `///` is the TMDL and DAX description syntax, so this prompt produces something you can
-commit. Descriptions written this way land in the PBIP folder, go through a pull request,
-and show up in a diff — which is exactly the split the next section is about.
+Measure descriptions are the thinnest part of most models, and they are the thing Copilot
+actually reads at query time.
+[Phase 3 covers this](03-model.md#descriptions-ask-copilot-in-the-fabric-model-view) with
+the Copilot pane in Fabric model view, because it belongs with the measures rather than
+with the audit. If you skipped it, go back and do it now — an audit of a model with no
+measure descriptions has one finding, and it is that one.
 
 ---
 

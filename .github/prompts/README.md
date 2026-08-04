@@ -88,12 +88,36 @@ afterwards.
 
 ---
 
-## Phase 3, model (GitHub Copilot Chat)
+## Phase 3, model (Copilot in Fabric)
+
+DAX query view, Copilot prompt box — take the `Suggest measures` starter, or type it:
 
 ```text
-Read semantic-model/measures.dax. For each measure, write a one sentence description
-under 200 characters that says what it measures and when someone should use it. Return
-a markdown table of measure name and description so I can paste them into Power BI.
+Suggest measures
+```
+
+Model view, Copilot pane:
+
+```text
+Help me add or replace descriptions for each measure. Consider the following rules:
+
+- insert or replace the description that should appear above the measure code and after ///
+- use business friendly terms
+- describe the DAX code in the description in business-friendly terms; do not copy the
+  code into the description
+- use the measure name and the other measures as context
+- the description should not be longer than 500 characters
+```
+
+---
+
+## Phase 3, model (GitHub Copilot Chat)
+
+With the Power BI modeling MCP server connected to the model:
+
+```text
+review current measures and suggest additional measures. do not duplicate and do not add
+useless measures. if all measures are there then tell me such.
 ```
 
 ```text
