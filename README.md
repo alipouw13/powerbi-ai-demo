@@ -51,8 +51,8 @@ The diagram is generated, not drawn, so it stays true as the demo changes. See
 | 2 | Load | 10 min | **GitHub Copilot** writes the ingestion notebook | [02-load](docs/02-load.md) |
 | 3 | Model | 25 min | **GitHub Copilot** writes DAX measures and descriptions; **DAX Copilot** explains them | [03-model](docs/03-model.md) |
 | 3b | Readiness audit | 15 min | Nothing. Score the model against the Microsoft Learn checklist before you score the AI. | [03b-readiness-audit](docs/03b-readiness-audit.md) |
-| 4 | Prep for AI | 20 min | **Prep data for AI** (preview): AI instructions, AI data schema, verified answers, Approved for Copilot (preview) | [04-prep-for-ai](docs/04-prep-for-ai.md) |
-| 5 | Report | 15 min | **Power BI Copilot** builds report pages from a prompt | [05-report](docs/05-report.md) |
+| 4 | Prep for AI | 20 min | **Prep data for AI** (preview): AI instructions and AI data schema; Approved for Copilot (preview) | [04-prep-for-ai](docs/04-prep-for-ai.md) |
+| 5 | Report | 15 min | **Power BI Copilot** builds report pages from a prompt, then verified answers are set on the finished visuals | [05-report](docs/05-report.md) |
 | 6 | Insights | 15 min | **Copilot pane** and **standalone Copilot** answer business questions | [06-insights](docs/06-insights.md) |
 | 7 | Agents | 25 min | **Fabric data agent** over the model and lakehouse; **Fabric IQ ontology**, optional | [07-agents](docs/07-agents.md) |
 | 8 | Validate | 15 min | Nothing. This is the human check on all of the above. | [08-validate](docs/08-validate.md) |

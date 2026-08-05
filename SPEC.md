@@ -58,8 +58,8 @@ The data is generated deterministically (fixed seed) so that the ground truth nu
 | 2 | Load | **GitHub Copilot** writes the ingestion notebook | VS Code / Fabric notebook |
 | 3 | Model | **GitHub Copilot** writes DAX measures and TMDL metadata; **DAX Copilot** explains and refines | VS Code, Power BI Desktop |
 | 3b | Readiness audit | None, deliberately. The model is scored against the Microsoft Learn optimization checklist before the AI is scored | Power BI Desktop, optional Fabric notebook |
-| 4 | Prep for AI | **Prep data for AI** (preview): AI instructions, AI data schema, verified answers; **Approved for Copilot** (preview) | Power BI Desktop / service |
-| 5 | Report | **Power BI Copilot** builds report pages from a prompt | Power BI Desktop / service |
+| 4 | Prep for AI | **Prep data for AI** (preview): AI instructions and AI data schema; **Approved for Copilot** (preview) | Power BI Desktop / service |
+| 5 | Report | **Power BI Copilot** builds report pages from a prompt, then verified answers are set on the finished visuals | Power BI Desktop / service |
 | 6 | Insights | **Copilot pane** summarises; **standalone Copilot** answers cross-item questions | Power BI service |
 | 7 | Agents | **Fabric data agent** over the model + lakehouse; **Fabric IQ ontology** as the shared business vocabulary | Fabric portal |
 | 8 | Validate | The accuracy loop: 15 questions, scored against ground truth, fix and re-run | Anywhere |

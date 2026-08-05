@@ -26,6 +26,33 @@ capacity: trial capacities do not qualify.
 
 ---
 
+## Start the report: auto-create or blank
+
+In the Power BI service, select the `ContosoCoffee` semantic model, then use the arrow
+beside `Auto-create report`. You have two starting points:
+
+- **Auto-create report** generates an initial report immediately. Use it when speed
+  matters more than seeing or shaping the outline first.
+- **Create a blank report** opens an empty canvas. This is the better demo path because
+  you can ask Copilot to inspect the model, propose several pages, and choose which ones
+  it should build.
+
+![The Power BI report creation dialog with the Auto-create report and Create a blank report options](images/05-create-report-options.png)
+
+Choose `Create a blank report`, open the Copilot pane, and select
+`Suggest content for a new report page` or use the first prompt below. Copilot evaluates
+the semantic model and returns an outline. Expand each proposed page to review its
+purpose, then select `Create` to generate it or `Edit` to refine the page prompt first.
+
+![A blank Power BI report with Copilot suggesting four report pages and offering Create and Edit actions](images/05-copilot-suggest-report-pages.png)
+
+Build the pages you want from the outline. Copilot creates the visuals and adds each page
+as a report tab; the result is still a first draft that you must validate and edit.
+
+![A Copilot-created Power BI report with four report tabs and a completed channel performance page](images/05-copilot-created-report-pages.png)
+
+---
+
 ## Three prompts, in this order
 
 The value is in the contrast between them.
@@ -78,8 +105,8 @@ Copilot produced a draft. Before anyone sees it:
    right and totals wrong is worse than no page at all.
 2. **Fix the titles.** Copilot's titles are literal and usually too long.
 3. **Check aggregations** on any numeric field that should not be summed.
-4. **Set verified answers** on the best two or three visuals, then go back to
-   [phase 4](04-prep-for-ai.md). Those visuals are now curated answers.
+4. **Set verified answers** on the best two or three visuals using the procedure at the
+   end of this phase. Those visuals are now curated answers.
 5. **Publish** to the workspace.
 6. **Restyle it**, once the numbers are right, using the screenshot workflow below.
 
@@ -161,6 +188,28 @@ percent it got wrong. That is not a criticism, it is how to use it. It removes t
 page and the fiddly layout work, and it hands you back something to review.
 
 The demo lands better if you say that than if you pretend the output is finished.
+
+---
+
+## Set verified answers
+
+Now that the report and its visuals exist, select a visual, `...`, then
+`Set verified answer` in Desktop or `Set up a verified answer` in the service. Add
+trigger phrases.
+
+In the service you also need to be in a Copilot enabled workspace, have authoring
+permission on the semantic model, be on a report page, and be in edit mode.
+
+Set three:
+
+| Visual | Trigger phrases |
+| --- | --- |
+| Net revenue by region, bar chart | net revenue by region, revenue by region, sales by region |
+| Net revenue by month, line chart | revenue trend, revenue by month, monthly revenue |
+| Top 5 products by net revenue | top products, best selling products, best products |
+
+Keep the list short. Every verified answer is a promise you have to maintain when the
+model changes.
 
 ---
 
