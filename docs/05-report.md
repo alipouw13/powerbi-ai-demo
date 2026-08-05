@@ -249,20 +249,24 @@ The demo lands better if you say that than if you pretend the output is finished
 
 ## Set verified answers
 
-Now that the report and its visuals exist, select a visual, `...`, then
-`Set verified answer` in Desktop or `Set up a verified answer` in the service. Add
-trigger phrases.
+Now that the report and its visuals exist, select the `Total Net Sales by Year-Month`
+line chart, select `...`, then select `Set verified answer` in Desktop or
+`Set up a verified answer` in the service.
+
+![The More options menu for the Total Net Sales by Year-Month line chart with Set up a verified answer selected](images/05-set-up-verified-answer.png)
 
 In the service you also need to be in a Copilot enabled workspace, have authoring
 permission on the semantic model, be on a report page, and be in edit mode.
 
-Set three:
+Power BI opens `Prep data for AI` with the selected visual and suggests phrases based
+on that visual. Review the suggestions before applying them. For this line chart, use
+the three suggestions shown:
 
-| Visual | Trigger phrases |
-| --- | --- |
-| Net revenue by region, bar chart | net revenue by region, revenue by region, sales by region |
-| Net revenue by month, line chart | revenue trend, revenue by month, monthly revenue |
-| Top 5 products by net revenue | top products, best selling products, best products |
+- `How have total net sales changed over time?`
+- `What is the trend of net sales by month?`
+- `In which month were net sales the highest?`
+
+![The Verified answers pane showing the Total Net Sales by Year-Month line chart and three Copilot phrase suggestions](images/05-verified-answer-suggestions.png)
 
 Keep the list short. Every verified answer is a promise you have to maintain when the
 model changes.
