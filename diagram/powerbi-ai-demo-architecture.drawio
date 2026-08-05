@@ -91,7 +91,7 @@ Ingests the CSVs with explicit schemas" style="text;html=1;align=left;verticalAl
           <mxGeometry x="484" y="408" width="40" height="40" as="geometry"/>
         </mxCell>
         <mxCell id="c1_2" value="Semantic model
-18 measures, every object described" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#121A3E;" vertex="1" parent="1">
+21 measures, every object described" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#121A3E;" vertex="1" parent="1">
           <mxGeometry x="532" y="398" width="262" height="60" as="geometry"/>
         </mxCell>
         <mxCell id="c1_3_bg" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontSize=12;fontStyle=1;fontColor=#121A3E;fillColor=#FFFFFF;strokeColor=#DDE3F0;" vertex="1" parent="1">
@@ -173,7 +173,7 @@ In report is GA, standalone is preview" style="text;html=1;align=left;verticalAl
           <mxGeometry x="1308" y="408" width="40" height="40" as="geometry"/>
         </mxCell>
         <mxCell id="c3_2" value="Fabric data agent
-Serves the model and the lakehouse to any conversation" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#121A3E;" vertex="1" parent="1">
+Serves the semantic model, and nothing else, to any conversation" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#121A3E;" vertex="1" parent="1">
           <mxGeometry x="1356" y="398" width="262" height="60" as="geometry"/>
         </mxCell>
         <mxCell id="c3_3_bg" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=8;fontSize=12;fontStyle=1;fontColor=#121A3E;fillColor=#FFFFFF;strokeColor=#DDE3F0;" vertex="1" parent="1">

@@ -1,9 +1,13 @@
 # Brand icons (third-party)
 
-Vendored logos for third-party systems that appear in this architecture but are
-not in the official Microsoft Azure or Fabric icon sets. Resolved by
+Logos for third-party systems that appear in this architecture but are not in the
+official Microsoft Azure or Fabric icon sets. Resolved by
 `cloudicons.py --provider brand` and embedded as base64 data URIs so the
 generated diagrams stay self-contained and work offline.
+
+This directory is the one place in the repo where a third-party asset is copied in
+rather than linked. Offline rendering is the reason: a linked logo would make the
+committed `.drawio`, `.svg` and `.png` depend on a network fetch.
 
 | File | Product | Owner |
 | --- | --- | --- |

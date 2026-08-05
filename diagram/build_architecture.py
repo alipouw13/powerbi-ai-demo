@@ -80,7 +80,7 @@ COLUMNS = [
         "cards": [
             ("Lakehouse", ["Four delta tables, one star schema"], ("lakehouse", "fabric")),
             ("Notebook", ["Ingests the CSVs with explicit schemas"], ("notebook", "fabric")),
-            ("Semantic model", ["18 measures, every object described"],
+            ("Semantic model", ["21 measures, every object described"],
              ("semantic model", "fabric")),
             ("OneLake", ["One copy of the data underneath", "every item above"],
              ("onelake", "fabric")),
@@ -111,7 +111,7 @@ COLUMNS = [
             ("Power BI report", ["Pages built by Copilot from a prompt"], ("report", "fabric")),
             ("Copilot, in report and standalone", ["In report is GA, standalone is preview"],
              ("copilot", "fabric")),
-            ("Fabric data agent", ["Serves the model and the lakehouse", "to any conversation"],
+            ("Fabric data agent", ["Serves the semantic model,", "and nothing else, to any conversation"],
              ("data agent", "fabric")),
             ("Fabric IQ ontology (preview)", ["Business meaning above the model"],
              ("ontology", "fabric")),

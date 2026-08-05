@@ -10,6 +10,11 @@ This is the phase that decides whether phases 5, 6 and 7 succeed. Copilot cannot
 better than the metadata you give it. Everything after this is downstream of the work
 you do here.
 
+**Start here after phase 2**, with the `LH_ContosoCoffee` lakehouse holding four verified
+tables. If you are taking the short path and skipped phases 1 and 2, connect Power BI
+Desktop straight to the four CSVs in [`data/`](../data) with `Get data`, `Text/CSV`, and
+build an Import model instead.
+
 ---
 
 ## Create the model
@@ -19,8 +24,8 @@ From the `LH_ContosoCoffee` lakehouse ribbon, select `New semantic model`. Name 
 
 Alternatively, connect Power BI Desktop to the lakehouse and build an Import model. The
 demo works either way. Note that in phase 4, Power BI Desktop supports Prep data for AI
-only on Import, DirectQuery, and Composite (local) models, while the Power BI service
-supports all model types including Direct Lake.
+(preview) only on Import, DirectQuery, and Composite (local) models, while the Power BI
+service supports all model types including Direct Lake.
 
 ---
 
@@ -31,16 +36,16 @@ which is the point of the demo.
 
 | Surface | Use it for | Status |
 | --- | --- | --- |
-| **Power BI MCP server, local** | Bulk edits: relationships, descriptions, summarisation, data categories, renames, DAX validation. Works against Desktop, a Fabric workspace, or a PBIP/TMDL folder. | Preview |
+| **Power BI MCP server, local (preview)** | Bulk edits: relationships, descriptions, summarisation, data categories, renames, DAX validation. Works against Desktop, a Fabric workspace, or a PBIP/TMDL folder. | Preview |
 | Copilot in Fabric, model view and DAX query view | Suggesting measures, writing measure descriptions, critiquing the model in place | GA |
 | GitHub Copilot in VS Code on the PBIP/TMDL folder | Drafting text, reviewing diffs, auditing the measure set, anything that is really a file edit | GA |
 | DAX query view with Copilot | Writing and explaining a single query | GA |
 | Power BI Desktop UI | The five clicks that are faster than a prompt | GA |
 
-**Use the local MCP server as the default for this phase.** Microsoft Learn lists exactly
-this workload — "apply modeling best practices across an existing semantic model in bulk"
-and "refactor TMDL or Power BI Project files as part of an agentic development workflow" —
-as what it is for. Doing the twelve items below one dialog at a time is the slow path.
+**Use the local MCP server as the default for this phase.** Microsoft Learn lists two
+matching scenarios: "apply modeling best practices across an existing semantic model in
+bulk" and "refactor TMDL or Power BI Project files as part of an agentic development
+workflow." Doing the twelve items below one dialog at a time is the slow path.
 
 ### Set it up
 
@@ -72,7 +77,8 @@ It exposes `measure_operations`, `column_operations`, `relationship_operations`,
 
 ### Guardrails, because it writes
 
-1. It is **preview**. Tool names and shapes can change. Re-check before you present.
+1. The local Power BI MCP server (preview) can change. Re-check tool names and shapes
+   before you present.
 2. It needs **Write** permission on the model. Point it at a demo model, never at
    someone's production semantic model.
 3. It ships a **`--readonly` flag**. Use it if you are only demoing the read side.
@@ -84,10 +90,10 @@ It exposes `measure_operations`, `column_operations`, `relationship_operations`,
 
 ### Don't confuse it with the remote server
 
-There are two. The **local** server does semantic model *authoring* — that is this phase.
-The **remote** Power BI MCP server is for *chatting with data* in a published model, needs
-a tenant setting enabled by an admin, and its `Generate Query` tool consumes Copilot
-capacity. That one is relevant to [phase 6](06-insights.md), not here.
+There are two. The **local** server does semantic model *authoring*, which is this phase.
+The **remote** Power BI MCP server (preview) is for *chatting with data* in a published
+model, needs a tenant setting enabled by an admin, and its `Generate Query` tool consumes
+Copilot capacity. That one is relevant to [phase 6](06-insights.md), not here.
 
 ---
 
@@ -124,12 +130,12 @@ view**, and open Copilot from the ribbon. It offers three starters; take
 
 ![DAX query view in Fabric with the Copilot prompt box open, showing the Suggest measures, Explain a DAX topic, and Write a DAX query starters](images/03-dax-query-view-copilot-suggest-measures.png)
 
-Copilot reads the model — the four tables, the relationships you just created, the column
-names and types — and writes DAX for measures it thinks the model is missing. Run what it
+Copilot reads the model: the four tables, the relationships you just created, the column
+names and types, and writes DAX for measures it thinks the model is missing. Run what it
 returns, check the numbers, then use `Update model with changes` to push the ones you want
 into the model.
 
-This is the better demo moment than pasting 18 measures from a file. It shows Copilot
+This is the better demo moment than pasting 21 measures from a file. It shows Copilot
 authoring against your model instead of authoring in a vacuum, and it shows why the
 modelling work above matters: with no relationships, `Suggest measures` returns very
 little worth keeping.
@@ -147,8 +153,8 @@ useless measures. if all measures are there then tell me such.
 The interesting outcome is the one where it says the set is complete. An agent that will
 tell you "there is nothing to add" is an agent worth trusting when it does propose
 something. Anything it does propose, check against
-[`semantic-model/measures.dax`](../semantic-model/measures.dax) before you accept it — that
-file is the reference set of 18 and the numbers in
+[`semantic-model/measures.dax`](../semantic-model/measures.dax) before you accept it. That
+file is the reference set of 21 and the numbers in
 [Verify before you leave this phase](#verify-before-you-leave-this-phase) are calculated
 from it.
 
@@ -232,7 +238,7 @@ and you run it as the gate in [phase 3b](03b-readiness-audit.md).
 10. **Enable Q&A** on the semantic model. Copilot data questions run through it.
 11. **Plan for AI instructions and the AI data schema.** That is phase 4, but design for
     it here.
-12. **Mark the model Approved for Copilot** once phase 4 is done, not before.
+12. **Mark the model Approved for Copilot (preview)** once phase 4 is done, not before.
 
 Very large models degrade Copilot quality, because there is a limit on how much metadata
 can be sent. One documented number worth knowing: only the **first 200 characters** of a
@@ -256,29 +262,18 @@ Not in the list above because this model does not need all of them, but real mod
 
 ---
 
-## Gate: audit before you score
-
-Do not go straight from here to phase 4. Run [phase 3b](03b-readiness-audit.md) first.
-It is fifteen minutes, it produces a written list of predicted failures, and pass A then
-tells you which predictions were right. That is a far better demo moment than a failure
-nobody saw coming.
-
----
-
----
-
 ## Verify before you leave this phase
 
 ```bash
 python validation/ground_truth.py
 ```
 
-Build a table visual and check at least these three:
+Build a table visual and check at least these four:
 
 | Measure | Expected |
 | --- | --- |
 | `Total Net Sales` | $412,918.50 |
-| `Gross Margin %` | 68.7% |
+| `Gross Margin %` | 68.65% |
 | `Total Quantity` | 94,417 |
 | `Order Count` | 64,335 |
 
@@ -286,14 +281,13 @@ If a measure disagrees, fix the measure. Never adjust the test.
 
 ---
 
-## Then run pass A
+## Next
 
-Before you do any AI preparation, open the Copilot pane and ask all 15 questions in
-[`validation/question-bank.md`](../validation/question-bank.md). Record the score as
-pass A in [`validation/scorecard.md`](../validation/scorecard.md).
-
-Do not skip this. Pass A is the control. Without it, phase 4 is an assertion instead of
-a result.
+Do not go straight from here to phase 4. Go to [phase 3b](03b-readiness-audit.md). It
+owns the readiness audit and pass A, the control score you take before any AI
+preparation. Fifteen minutes there produces a written list of predicted failures, and
+pass A tells you which predictions were right. That is a far better demo moment than a
+failure nobody saw coming.
 
 ---
 

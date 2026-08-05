@@ -7,6 +7,10 @@
 Now be the person the whole rest of the demo exists to serve. You know nothing about the
 model. Behave accordingly.
 
+**Start here after phase 5**, with the report published to the workspace and its visuals
+checked against ground truth. On the short path, where phase 5 is skipped, use
+`Auto-create report` on the `ContosoCoffee` model to get a report page to work against.
+
 ---
 
 ## Two surfaces, and the difference matters
@@ -15,7 +19,7 @@ model. Behave accordingly.
 Scoped to the report that is open. Summarises a page, explains a visual, answers
 questions about the data behind the report. In the service and in Desktop.
 
-**Standalone Copilot in Power BI. Preview.**
+**Standalone Copilot in Power BI (preview).**
 Full screen, across items. It searches the reports, semantic models, and Fabric data
 agents you have access to, then picks what to answer from. Reached from the Copilot icon
 in the left navigation of the Power BI service, or from Power BI Home. Also in the mobile
@@ -31,24 +35,24 @@ icon is missing.
 
 This is the clearest way to show why phase 4 exists.
 
-If standalone Copilot answers from a semantic model that is **not** marked
-`Approved for Copilot`, it shows a banner saying answer quality could be low, and the
+If standalone Copilot (preview) answers from a semantic model that is **not** marked
+`Approved for Copilot` (preview), it shows a banner saying answer quality could be low, and the
 user has to select `View answer` to see it. Once the model is approved, no banner.
 
 If you can, show it both ways. Ask a question before you approve the model, then approve
 it and ask again.
 
 An admin can go further with `Only show approved items in the standalone Copilot in
-Power BI experience`, in which case unapproved content never appears at all.
+Power BI experience` (preview), in which case unapproved content never appears at all.
 
 ---
 
 ## Run the question bank
 
 Ask all 15 questions in
-[`validation/question-bank.md`](../validation/question-bank.md), **exactly as written**,
-in both surfaces. Record the results as pass C in
-[`validation/scorecard.md`](../validation/scorecard.md).
+[`validation/question-bank.md`](../validation/question-bank.md), **exactly as written**.
+Use the report Copilot pane if you still need pass B. Use standalone Copilot (preview) for
+pass C, then record the results in [`validation/scorecard.md`](../validation/scorecard.md).
 
 Do not reword a question to get a better answer. A reworded question is a hidden failure,
 and the failures are the interesting part.
@@ -70,6 +74,9 @@ Show me sales for the Northwest region.
 Before phase 4 these usually fail badly. F01 invents a projection. F02 silently picks one
 interpretation. F03 quietly substitutes West. After phase 4 they should behave, because
 the AI instructions cover exactly those three cases.
+
+Your end-of-phase check is complete when pass C has 15 scored answers and the three failure
+questions have notes in the scorecard.
 
 ---
 

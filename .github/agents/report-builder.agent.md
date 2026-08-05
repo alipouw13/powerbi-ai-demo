@@ -55,7 +55,7 @@ Copilot writes a draft, not a finished report. Always:
 ## Making it look like something, from a screenshot
 
 Copilot in Power BI produces a generic page. It cannot read an image, so it cannot copy
-a design. GitHub Copilot Chat can read an image, and the Fabric MCP server can rewrite
+a design. GitHub Copilot Chat can read an image, and the Fabric MCP server (preview) can rewrite
 the report definition, so the two of them together can.
 
 When the user attaches a screenshot and asks for a page that looks like it, use the
@@ -85,7 +85,7 @@ have made a wrong page attractive.
 
 - Never present a Copilot-generated page without checking the numbers first.
 - Never restyle a page whose numbers have not been checked.
-- Restyling needs a published report and a connected Fabric MCP server. A model that
+- Restyling needs a published report and a connected Fabric MCP server (preview). A model that
   only exists in Desktop has no item definition to fetch.
 - If Copilot cannot find a field, the model is the problem. Go back to phase 3.
 - Copilot in Power BI needs a paid F2 or higher, or P1 or higher. Trial capacities do

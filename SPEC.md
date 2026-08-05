@@ -3,8 +3,11 @@
 **Status:** v1.1
 **Audience:** anyone who wants to show, or learn, how AI shows up across the whole
 Power BI lifecycle on Microsoft Fabric.
-**Runtime:** about 170 minutes end to end, first time, including setup. The short path
-(phases 0, 3, 3b, 4, 6, 8) is about 110 minutes.
+**Runtime:** about 170 minutes end to end, first time, including setup, excluding the
+optional ontology step in phase 7 which adds another 20. The short path
+(phases 0, 1, 2, 3, 3b, 4, 6, 8, with `Auto-create report` standing in for phase 5) is
+about 130 minutes. Dropping phases 1 and 2 as well, by connecting Power BI Desktop
+straight to the CSVs in `data/`, is about 110 minutes.
 
 ---
 
@@ -54,14 +57,14 @@ The data is generated deterministically (fixed seed) so that the ground truth nu
 | # | Phase | AI capability on show | Where |
 | --- | --- | --- | --- |
 | 0 | Setup | - | Fabric portal, VS Code |
-| 1 | Provision | **Fabric MCP** (Core, remote) drives workspace + lakehouse creation from chat | VS Code + GitHub Copilot |
+| 1 | Provision | **Fabric MCP** (Core, remote, preview) drives workspace + lakehouse creation from chat | VS Code + GitHub Copilot |
 | 2 | Load | **GitHub Copilot** writes the ingestion notebook | VS Code / Fabric notebook |
 | 3 | Model | **GitHub Copilot** writes DAX measures and TMDL metadata; **DAX Copilot** explains and refines | VS Code, Power BI Desktop |
 | 3b | Readiness audit | None, deliberately. The model is scored against the Microsoft Learn optimization checklist before the AI is scored | Power BI Desktop, optional Fabric notebook |
 | 4 | Prep for AI | **Prep data for AI** (preview): AI instructions and AI data schema; **Approved for Copilot** (preview) | Power BI Desktop / service |
 | 5 | Report | **Power BI Copilot** builds report pages from a prompt, then verified answers are set on the finished visuals | Power BI Desktop / service |
-| 6 | Insights | **Copilot pane** summarises; **standalone Copilot** answers cross-item questions | Power BI service |
-| 7 | Agents | **Fabric data agent** over the model + lakehouse; **Fabric IQ ontology** as the shared business vocabulary | Fabric portal |
+| 6 | Insights | **Copilot pane** summarises; **standalone Copilot** (preview) answers cross-item questions | Power BI service |
+| 7 | Agents | **Fabric data agent** over the semantic model; **Fabric IQ ontology** (preview) as the shared business vocabulary | Fabric portal |
 | 8 | Validate | The accuracy loop: 15 questions, scored against ground truth, fix and re-run | Anywhere |
 
 Phase 7's ontology step is optional. It is a preview feature and needs its own tenant
@@ -92,10 +95,12 @@ which is explicitly labelled as a community project throughout.
 | GitHub Copilot in VS Code | GA | 1, 2, 3, 8 |
 | Fabric Core MCP Server (remote) | Preview | 1 |
 | Fabric MCP Server (local) | Preview | 1, 2 |
+| Power BI MCP Server (local, model authoring) | Preview | 3 |
+| Power BI MCP Server (remote, chat with data) | Preview | 6 |
 | Microsoft Learn MCP Server | GA | all (grounding) |
 | Copilot in Power BI, report pane | GA | 5, 6 |
 | Copilot in Power BI, standalone | Preview | 6 |
-| DAX query view with Copilot | GA | 3 |
+| DAX query view with Copilot | GA, enabled from Preview features in Power BI Desktop | 3 |
 | Prep data for AI | Preview | 4 |
 | Approved for Copilot | Preview | 4 |
 | Fabric data agent | GA | 7 |
@@ -116,7 +121,8 @@ is [Semantic Link Labs](https://github.com/microsoft/semantic-link-labs).
 
 ```
 .github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
-.github/prompts/     copy-paste prompts, a single README with one section per phase
+.github/skills/      reusable procedures agents can load, such as restyling a report page from a screenshot
+.github/prompts/     copy-paste prompts, a single README with one section per phase from 1 onward
 data/                synthetic CSVs plus the generator that produced them
 diagram/             the architecture diagram plus the generator and icon resolver that produce it
 fabric/              notebook to land the CSVs as Lakehouse tables
@@ -143,7 +149,10 @@ human step a product glyph misrepresents the architecture.
 - No em dashes in any content.
 - Preview features are always labelled as preview at the point of use.
 - Community and third-party assets are always labelled as such, and are linked rather
-  than copied into this repo.
+  than copied into this repo. The one exception is the brand icons in
+  `diagram/brand-icons/`, which have to be present locally for the diagram to render
+  offline. They are logged and attributed in `diagram/brand-icons/NOTICE.md` and are used
+  for identification only.
 
 ---
 

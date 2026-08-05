@@ -2,10 +2,13 @@
 
 **Agent:** `fabric-provisioner`
 **Time:** 10 minutes
-**AI on show:** Fabric Core MCP Server, preview, driven from GitHub Copilot Chat
+**AI on show:** Fabric Core MCP Server (preview), driven from GitHub Copilot Chat
 
 The point of this phase is not that a workspace got created. It is that it got created
 from a sentence, with your identity, your permissions, and an audit trail.
+
+Start here after [phase 0](00-setup.md), when the Fabric Core MCP Server (preview) is
+connected in VS Code and `List all my Fabric workspaces` returns a real workspace list.
 
 ---
 
@@ -13,7 +16,7 @@ from a sentence, with your identity, your permissions, and an audit trail.
 
 Two servers, and they do different jobs.
 
-| | Core, remote | Local |
+| | Core (preview, remote) | Local (preview) |
 | --- | --- | --- |
 | Install | None, it is a URL | VS Code extension |
 | Workspace management | Yes | No |
@@ -24,7 +27,7 @@ Two servers, and they do different jobs.
 | Audit logged | Yes | No |
 | Open source | No | Yes |
 
-You can run both at once. This phase uses Core.
+You can run both at once. This phase uses Core (preview, remote).
 
 Both enforce your existing Fabric RBAC. Neither grants any permission you do not already
 have. Core actions appear in Fabric audit logs against your user identity. Say this out
@@ -61,9 +64,11 @@ that supports Copilot. Then create a lakehouse called "LH_ContosoCoffee" inside 
 When you are done, list the items in the workspace so I can verify.
 ```
 
-**4. Verify.** Do not accept "created successfully". Make it list the items back, and
-then look at the workspace in the Fabric portal. This habit is what separates a demo
-from a claim.
+**4. Verify.** Do not accept "created successfully". Make it list the items back, then
+open the workspace in the Fabric portal and confirm you can see:
+
+- Workspace: `Contoso Coffee AI Demo`
+- Lakehouse: `LH_ContosoCoffee`
 
 ---
 
@@ -80,14 +85,11 @@ a better security demo than any slide.
 
 ---
 
-## Tools Core exposes
+## Tool reference
 
-`search_catalog`, `list_workspaces`, `get_workspace`, `create_workspace`,
-`update_workspace`, `delete_workspace`, workspace role add, list, get, update and
-delete, `list_items`, `get_item`, `create_item`, `update_item`, `delete_item`,
-`get_item_definition`, `update_item_definition`, `bulk_move_items`, folder create, list,
-get, update, delete and move, `list_capacities`, `get_operation_state`,
-`get_operation_result`, `get_knowledge`.
+If someone asks what Core can do, show the Microsoft Learn tool reference rather than
+reciting a stale list. For this phase, the important tools are workspace, capacity,
+lakehouse item, role assignment, and operation-status tools.
 
 ---
 

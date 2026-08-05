@@ -1,4 +1,4 @@
-# Phase 4. Prep data for AI
+# Phase 4. Prep data for AI (preview)
 
 **Agent:** `copilot-readiness`
 **Time:** 20 minutes
@@ -15,7 +15,7 @@ problem somewhere harder to find.
 **Get a first draft of the AI instructions.**
 
 ```text
-Review my model and generate a text for Prep data for AI instruction. Use business
+Review my model and generate text for Prep data for AI (preview) instructions. Use business
 friendly terms. Be explicit and specific and use analogies and descriptive language,
 avoid ambiguity.
 ```
@@ -49,9 +49,9 @@ to routing.
 
 **Where to author them**
 
-- **Power BI Desktop:** `Prep data for AI` on the Home ribbon. Supports Import,
+- **Power BI Desktop:** `Prep data for AI` (preview) on the Home ribbon. Supports Import,
   DirectQuery, and Composite (local) models.
-- **Power BI service:** select the semantic model, `Prep data for AI` on the ribbon,
+- **Power BI service:** select the semantic model, `Prep data for AI` (preview) on the ribbon,
   then `Apply`. Supports all model types, including Direct Lake.
 
 Users consume these features everywhere Copilot in Power BI exists.
@@ -69,10 +69,11 @@ would need told:
 
 | Instruction | Failure it prevents |
 | --- | --- |
-| Sales and revenue mean `Total Net Sales`, not `Gross Sales` | Every number 3 to 4 percent too high, subtly |
+| Revenue, sales and turnover mean `Total Net Sales`, not `Gross Sales` | Every number 3 to 4 percent too high, subtly |
 | Top and best mean highest `Total Net Sales` | Ties broken by the wrong measure |
-| Regions are exactly West, Central, East | An invented "Northwest region" answer |
+| Regions and store types are closed lists | An invented "Northwest region" or store type answer |
 | Data covers 2024 to 2025 only | A confident answer about 2026 |
+| Order Count counts sales order lines | Orders being confused with customers or items |
 | Year-over-year needs a single year in context | `Net Sales YoY %` reporting 104.9% instead of 4.9%. This one really happened, see [phase 5](05-report.md). |
 | Never sum year or any key column | A total year of 4,050 |
 | The model has no forecast | A hallucinated projection presented as fact |
@@ -84,7 +85,7 @@ would need told:
 Fewer, better fields. Include what a business user would say out loud. Exclude the rest.
 
 **Include:** all 21 measures, plus `Date` date and period columns, `Product` name,
-category and subcategory, `Store` name, city, state, region and store type,
+category and subcategory, `Store` name, city, state, region, store type and opened date,
 and `Sales[Channel]`.
 
 **Exclude:** every key column, the raw `Gross Amount`, `Discount Amount`,
@@ -109,7 +110,7 @@ Two things to check once you have made the selection, both from the
 ## 3. Test it
 
 - Use the **skill picker** in the Desktop Copilot pane to simulate each surface.
-  Standalone is `Answer questions about the data`. Read mode adds
+  Standalone Copilot (preview) is `Answer questions about the data`. Read mode adds
   `Analyze report visuals`. Edit mode adds `Create new report pages`. Desktop enables
   all three by default.
 - **Close and reopen the Copilot pane after every save.** Changes do not reach an open
@@ -123,21 +124,21 @@ Q&A must be enabled on the semantic model for any of this to work.
 
 ---
 
-## 4. Approved for Copilot
+## 4. Approved for Copilot (preview)
 
 Do this after you have tested the AI instructions and AI data schema.
 
-Power BI service, find the semantic model, `Settings`, expand `Approved for Copilot`,
-tick the box, `Apply`.
+Power BI service, find the semantic model, `Settings`, expand
+`Approved for Copilot` (preview), tick the box, `Apply`.
 
-- It removes the **friction treatment** in the standalone Copilot experience, which is
-  the banner warning users that answer quality could be low.
+- It removes the **friction treatment** in the standalone Copilot (preview) experience,
+  which is the banner warning users that answer quality could be low.
 - Reports built on the model are treated as approved. There is no way to mark a report,
   dashboard, or app approved directly. Only semantic models.
 - Usually reflected within an hour, up to 24 hours on a model with many reports. To force
   it, save a small change to a report.
 - An admin can additionally enable `Only show approved items in the standalone Copilot in
-  Power BI experience` so unapproved content never appears.
+  Power BI experience` (preview) so unapproved content never appears.
 
 The setting used to be called "prepped for AI".
 
@@ -158,7 +159,7 @@ AI instructions cover exactly those cases.
 ## A caveat to say out loud
 
 AI behaviour is nondeterministic. The same prompt can return different wording, and
-occasionally a different answer. Prep data for AI improves the odds, it does not
+occasionally a different answer. Prep data for AI (preview) improves the odds, it does not
 guarantee an output. Judge the number, not the sentence, and run the bank more than
 once if a result surprises you.
 
