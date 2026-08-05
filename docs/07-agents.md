@@ -159,12 +159,16 @@ for every agent and every workload, instead of once per report.
 
 | Concept | Plain meaning | Contoso Coffee |
 | --- | --- | --- |
-| Entity type | The reusable definition of a real world thing | `Store`, `Product`, `Sale` |
+| Entity type | The reusable definition of a real world thing | `Store`, `Product`, `Sales` |
 | Entity instance | One concrete occurrence | The Midtown store |
 | Property | A named fact with a type | `Store.Region` |
-| Relationship | A typed, directional link with cardinality | `Sale occurred at Store` |
-| Data binding | Link from definition to real OneLake data | `Store` bound to `dim_store` |
-| Ontology graph | The queryable instance graph | Store to Sale to Product paths |
+| Relationship type | A typed, directional link | `Sales_has_Store` |
+| Data binding | Link from an entity type to a real OneLake table | `Store` bound to `dim_store` |
+| Contextualization | Link from a *relationship* to the table that joins both sides | `Sales_has_Store` bound to `fact_sales` |
+| Ontology graph | The queryable instance graph | Store to Sales to Product paths |
+
+A relationship type without a contextualization is declared but not bound. It looks
+correct in the portal and returns nothing. That is the easiest defect here to miss.
 
 Ontology also has **NL2Ontology**, which turns a business question into a structured
 query across the bound sources.
@@ -185,7 +189,7 @@ work was not throwaway.
 
 1. Open the `ContosoCoffee` semantic model in Fabric, or its overview page.
 2. Select `Generate Ontology` on the ribbon.
-3. Pick the workspace, name it `ContosoCoffeeOntology`. Letters, numbers and underscores
+3. Pick the workspace, name it `ContosoCoffee`. Letters, numbers and underscores
    only. No spaces, no dashes.
 4. Select `Create`.
 
@@ -196,26 +200,124 @@ relationships are missing. All three are phase 3 problems.
 
 Generated entity types are named after the **model** tables, so you get `Sales`, `Store`,
 `Product` and `Date`. Because phase 3 already renamed everything to business names, this
-is now a light touch rather than a rescue: singularise `Sales` to `Sale`, and drop `Date`
-if you do not want a calendar entity in the graph.
+is now a light touch rather than a rescue.
 
 That is the lesson, and it is a better one than it looks. Had the model still carried
 `fact_sales` and `dim_store`, those names would have propagated straight into the
 ontology and from there into every agent that consumes it. Naming debt compounds
 downstream. The ontology is where table names would otherwise leak into the business.
 
-Verify the properties and bindings, then the relationship types and their cardinality.
-Note that upstream changes such as new rows need a manual refresh of the graph model
-before they appear.
+### Then audit it, because the generator got it wrong
+
+Names are the easy part. In this repo the generated ontology was **structurally broken**
+and it still looked correct in the portal. Run this audit before you demo it:
+
+| Check | Failure we actually hit |
+| --- | --- |
+| Do the bound columns exist? | Every binding used the semantic model **display name** against the **physical** lakehouse table. `dim_product` was bound to `Product Name`, `List Price`, `Cost per Unit`. The real columns are `product_name`, `unit_price`, `unit_cost`. |
+| Does every entity have a key? | `entityIdParts` was empty on all four. |
+| Does every entity have a display name? | `displayNamePropertyId` was null on all four. |
+| Is every relationship bound? | No relationship had a `Contextualizations/` part, so none of the three joins resolved. |
+| Are the properties real columns? | `Sales` carried 23 properties, of which 21 were DAX **measure** names. Measures are not columns. The five real fact columns were missing. |
+
+Any one of those returns an empty graph. Together they mean the item could never have
+produced a single instance. The portal shows no error for any of them.
+
+The cause is that the generator reads names from the **semantic model** and binds to the
+**physical** table. Those are two different layers, and phase 2 never renamed the lakehouse
+columns, so nothing lined up.
+
+### Repair it through the API
+
+The portal can fix names, but keys, bindings and contextualizations are faster to repair
+through `getDefinition` and `updateDefinition`. Hand the job to the
+[`ontology-architect`](../.github/agents/ontology-architect.agent.md) agent, which carries
+the traps. A prompt that works:
+
+```text
+Audit the ContosoCoffee ontology in my Fabric workspace and repair it.
+
+1. Fetch the item definition and decode every part. If getDefinition returns 403
+   ItemHasProtectedLabel, stop and tell me. Do not write blind, because
+   updateDefinition replaces parts wholesale and would destroy the item.
+2. Save the decoded definition as a rollback backup and tell me the part count.
+3. Read the real column names from the lakehouse Delta logs in OneLake. Do not
+   trust the semantic model for physical column names.
+4. Report every defect: bindings pointing at columns that do not exist, entities
+   with no entityIdParts, entities with no displayNamePropertyId, relationship
+   types with no contextualization, and properties that are DAX measures rather
+   than columns.
+5. Propose a fix as a change set and wait for my yes before writing anything.
+   Add keys, set display name properties, repoint every binding at a real column,
+   add the missing fact columns, and contextualize every relationship.
+6. After the write, read the definition back and prove nothing was dropped.
+```
+
+The change set that came out of that run: four bindings repointed, three keys added
+(`Product_Key` and `Store_Key` as `BigInt`, `Date_Key` as `String`), `entityIdParts` and
+`displayNamePropertyId` set on all four entities, five real `Sales` fact columns added and
+bound, and three contextualizations added. The definition went from 13 parts to 16.
+
+Two limits are worth knowing before you start:
+
+- **`entityIdParts` rejects `DateTime`.** Keys must be `String` or `BigInt`. A date
+  dimension whose only unique column is a date needs a new `String` property bound to that
+  same column.
+- **There is no refresh API.** `POST /jobs/instances?jobType=Refresh` returns
+  `InvalidJobType` for `GraphModel` in preview, so refresh the graph model from the portal
+  once the repair lands. Until you do, instances will not appear and the repair will look
+  like it failed.
+
+### Entity descriptions
+
+The ontology schema has **no description field and no synonym field**, on entity types or
+on properties. Do not go looking for one; a payload carrying it fails validation. The only
+writable text surfaces are the item description, capped at 256 characters, and a
+per-entity `Documents/{name}.json` part that holds `displayText` plus a required `url`.
+
+So the authoritative descriptions live here, and the short form is mirrored into each
+entity's `Documents` part so it is visible in Fabric:
+
+| Entity | Description |
+| --- | --- |
+| `Sales` | Sales fact. One row per sales order line, 64,335 rows across 2024 and 2025. `Net_Amount` is revenue after discount, `Gross_Amount` is before discount, `Cost_Amount` is cost of goods sold. Gross margin is `Net_Amount` minus `Cost_Amount`. There is no customer dimension and no returns. |
+| `Product` | Product catalog. 12 SKUs across the coffee, food and merchandise categories. `List_Price` is the retail price and `Cost_per_Unit` is the unit cost. `Category` and `Subcategory` form the product hierarchy. |
+| `Store` | Retail location. 8 stores. `Region`, `State` and `City` form the geography hierarchy, `Store_Type` separates formats, and `Opened_Date` is the launch date. |
+| `Date` | Calendar dimension. One row per day for 731 days covering 2024 and 2025. Use it for every time-based grouping and filter. `Date_Key` is the entity key and joins to `Sales`. |
+
+Keep this table in step with `semantic-model/ai-instructions.md`. The two describe the same
+business, and an agent reading both should not find a contradiction.
 
 ### Use it
 
 Add the ontology as a second source to `Contoso Coffee Analyst`, then ask a
 relationship-shaped question and compare against the pure semantic model answer. This is
-the one case where a second source earns its place, because it answers a different shape
-of question rather than duplicating the first. Ontology sources support agent instructions
-and a data source description, but not schema selection, data source instructions, or
-example queries.
+the one deliberate exception to the single-source rule stated at the top of this page: the
+ontology earns its place because it answers a different shape of question rather than
+duplicating the first. The lakehouse still stays out. Ontology sources support agent
+instructions and a data source description, but not schema selection, data source
+instructions, or example queries.
+
+### How this phase was built
+
+Worth showing, because the repair is a better AI story than the generate step.
+
+| Layer | What was used | For what |
+| --- | --- | --- |
+| MCP server | **Fabric MCP** (`list_items`, `get_item_definition`) | Item discovery and the definition read that raw REST could not do. It holds the right tenant credential, which is why it kept working when the CLI did not. |
+| MCP server | **Microsoft Learn MCP** | Pulling the live ontology JSON schemas, which is how the missing description field was proven rather than guessed. |
+| REST API | `GET/POST .../items/{id}/getDefinition` and `/updateDefinition` | Read and write the 16-part definition tree. |
+| REST API | `PATCH /v1/workspaces/{ws}/items/{id}` | The item description, capped at 256 characters. |
+| REST API | OneLake DFS `.../Tables/{t}/_delta_log` | The real physical column names. The lakehouse SQL endpoint is the documented route and is worth trying first. |
+| Copilot | **GitHub Copilot** in agent mode | Decoded the base64 parts, diffed the bindings against the Delta schemas, wrote the mutation script, and rendered the change set for approval. |
+| Repo agent | [`ontology-architect`](../.github/agents/ontology-architect.agent.md) | Owns this phase and carries the traps. |
+| Repo agent | [`semantic-model-author`](../.github/agents/semantic-model-author.agent.md) | Upstream. The naming work in phase 3 is what made the entity names clean. |
+| Repo agent | [`data-loader`](../.github/agents/data-loader.agent.md) | Upstream. It defined the physical snake_case columns the bindings had to match. |
+
+One non-obvious failure is worth repeating. Every REST call returned `404 EntityNotFound`,
+which reads like an unsupported API. The real cause was that `az` was signed in to a
+different tenant than the workspace. Check `az account show` before you conclude an
+endpoint does not exist.
 
 Docs:
 - https://learn.microsoft.com/fabric/iq/overview
