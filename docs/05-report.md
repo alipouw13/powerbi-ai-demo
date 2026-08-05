@@ -100,9 +100,10 @@ surfacing, not a phase 5 problem.
 ## What it looks like when it is finished
 
 This is the `Executive Sales & Margin Overview` page after the review pass below. Copilot
-drafted the visuals, then the layout, theme and titles were tightened by hand.
+drafted the visuals and narrative, then the layout, theme and titles were tightened by
+hand.
 
-![Executive Sales & Margin Overview: a Power BI report page with a blue header band containing Region and Year slicers, a row of five KPI cards reading $412.92K total net sales, $283.48K gross margin, 68.7% gross margin percent, 64K orders and 4.9% net sales year over year, two line charts by year-month, and two bar charts by category and channel](images/executive-sales-margin-overview.png)
+![Executive Sales & Margin Overview: a Power BI report page with a blue header band containing Region and Year slicers, five KPI cards, two line charts by year-month, bar charts by category and channel, and an AI-generated narrative summarising sales and margin performance](images/executive-sales-margin-overview.png)
 
 Worth pointing at during a demo:
 
@@ -113,6 +114,7 @@ Worth pointing at during a demo:
 | The YoY card is titled `NET SALES YOY % (2025 VS 2024)`, not just `NET SALES YOY %` | The title names the comparison because the card is filtered to one year. It has to be. See below. |
 | Gross Margin % is its own chart, not a second series on the sales chart | A rate and an amount on one axis is the most common way a generated page misleads. |
 | Category and Channel as separate bar charts | These are the two splits the audience always asks for next, so answering them before the question is asked keeps the demo moving. |
+| The narrative visual summarises sales, orders, margin and monthly changes | It turns the validated measures into an executive-readable explanation, but its claims still need the same review as every generated visual. |
 | Region and Year slicers in the header band | Every number on the page is qualified by a visible filter state. |
 
 Two of the visuals on this page, `Total Net Sales by Year-Month` and `Net Sales by
