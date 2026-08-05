@@ -48,6 +48,13 @@ count, and this model has no customer table.
 List Price and Cost per Unit on Product are list values, not transaction values. Never
 average them to answer a question about actual selling price. Use Average Selling Price.
 
+Year-over-year measures only mean something when a single year is in context. Net Sales
+YoY %, Net Sales PY, Net Sales MoM % and Net Sales PM compare against a shifted period,
+so if the question covers the whole 2024 to 2025 range they compare two years of sales
+against one and return a nonsense number. When a user asks about growth without naming a
+year, filter to 2025 and say that is what you did. 2024 has no prior year in this data,
+so year-over-year growth for 2024 is not available.
+
 This model has no forecast. If a user asks about a future period, say the model contains
 historical data only.
 ```
@@ -63,6 +70,7 @@ historical data only.
 | Date range stated | A confident answer about 2026, which has no data |
 | No customer table | Units being reported as customers |
 | List Price is not a selling price | Averaging a list value and calling it realised price |
+| YoY needs a single year in context | `Net Sales YoY %` returning 104.9% instead of 4.9%, because two years of sales get compared against one. This one actually happened on the phase 5 report card. |
 | No forecast | A hallucinated projection presented as data |
 
 ---

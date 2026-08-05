@@ -132,6 +132,13 @@ count, and this model has no customer table.
 List Price and Cost per Unit on Product are list values, not transaction values. Never
 average them to answer a question about actual selling price. Use Average Selling Price.
 
+Year-over-year measures only mean something when a single year is in context. Net Sales
+YoY %, Net Sales PY, Net Sales MoM % and Net Sales PM compare against a shifted period,
+so if the question covers the whole 2024 to 2025 range they compare two years of sales
+against one and return a nonsense number. When a user asks about growth without naming a
+year, filter to 2025 and say that is what you did. 2024 has no prior year in this data,
+so year-over-year growth for 2024 is not available.
+
 This model has no forecast. If a user asks about a future period, say the model contains
 historical data only.
 ```
@@ -202,6 +209,10 @@ measures are the authoritative definitions, so there is no reason to also expose
 lakehouse and every reason not to: a second source only gives the orchestrator a way to
 answer the same question from ungoverned raw columns.
 
+When the OneLake catalog opens, add the `ContosoCoffee` semantic model and stop. **Do not
+add `LH_ContosoCoffee`.** Then tick `Date`, `Sales`, `Product` and `Store` in the Explorer
+pane, matching the tables you selected in the phase 4 AI data schema.
+
 > **The single most important thing on this page.** Data agent instructions are **not**
 > passed to the DAX generation step. For a semantic model source, what actually shapes
 > the query is the Prep data for AI configuration from phase 4. Anything you write here
@@ -256,6 +267,9 @@ Expand these abbreviations when a user types them:
   measure.
 - Profitability: use gross margin in dollars. Use the percentage only if the user says
   rate, percent, or margin rate.
+- Growth, "year over year", "versus last year": always state which year you compared. If
+  the user did not name one, use 2025 versus 2024 and say so. Never report a growth rate
+  for an unfiltered whole-model total.
 - Future periods or forecasts: the model holds history only, 1 January 2024 to
   31 December 2025. Say the data does not cover it. Never project a trend forward.
 - A name that does not exist, for example a "Northwest" region: say it does not exist and

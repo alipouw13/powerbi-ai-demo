@@ -43,7 +43,9 @@ better routing, and lower latency.
 
 1. In the workspace, `+ New item`, search `Fabric data agent`, select it.
 2. Name it `Contoso Coffee Analyst`.
-3. The OneLake catalog opens. Add one source: the `ContosoCoffee` semantic model.
+3. The OneLake catalog opens. Add one source: the `ContosoCoffee` semantic model, then
+   **stop**. Do not also add `LH_ContosoCoffee`. The catalog will happily show it to you
+   and it is the wrong choice for the reason above.
 4. In the Explorer pane, tick the tables the agent may use: `Date`, `Sales`, `Product`,
    `Store`. Select the **same tables you chose in the phase 4 AI data schema**. If the two
    disagree, the agent and the Copilot pane will answer differently and you will not know

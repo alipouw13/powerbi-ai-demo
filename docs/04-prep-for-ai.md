@@ -58,6 +58,7 @@ would need told:
 | Top and best mean highest `Total Net Sales` | Ties broken by the wrong measure |
 | Regions are exactly West, Central, East | An invented "Northwest region" answer |
 | Data covers 2024 to 2025 only | A confident answer about 2026 |
+| Year-over-year needs a single year in context | `Net Sales YoY %` reporting 104.9% instead of 4.9%. This one really happened, see [phase 5](05-report.md). |
 | Never sum year or any key column | A total year of 4,050 |
 | The model has no forecast | A hallucinated projection presented as fact |
 

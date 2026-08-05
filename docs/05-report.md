@@ -42,12 +42,12 @@ your measures and dimensions, not guessing from the table names.
 **2. The specific one.**
 
 ```text
-Create a page showing net revenue and gross margin percent by region and by month, with
-a card for total net revenue and a bar chart of the top 5 products by net revenue.
+Create a page showing total net sales and gross margin percent by region and by month,
+with a card for total net sales and a bar chart of the top 5 products by net sales.
 ```
 
 This should work well, because phase 3 gave every measure a description and phase 4 told
-Copilot what revenue means.
+Copilot that sales and revenue both mean `Total Net Sales`.
 
 **3. The vague one.**
 
@@ -62,11 +62,62 @@ can, once after.
 **4. A narrative.**
 
 ```text
-Add a narrative visual that summarises revenue performance for 2025 compared to 2024.
+Add a narrative visual that summarises net sales performance for 2025 compared to 2024.
 ```
 
 Read the output aloud. If it says something untrue, that is a phase 3 or 4 problem
 surfacing, not a phase 5 problem.
+
+---
+
+## What it looks like when it is finished
+
+This is the `Executive Sales & Margin Overview` page after the review pass below. Copilot
+drafted the visuals, then the layout, theme and titles were tightened by hand.
+
+![Executive Sales & Margin Overview: a Power BI report page with a blue header band containing Region and Year slicers, a row of five KPI cards, two line charts by year-month, and two bar charts by category and channel](images/executive-sales-margin-overview.png)
+
+Worth pointing at during a demo:
+
+| On the page | Why it is there |
+| --- | --- |
+| Cards read `Total Net Sales`, `Gross Margin`, `Gross Margin %`, `Order Count`, `Net Sales YoY %` | Measure names, straight from the model. Nothing is renamed in the report, so what the audience reads is what Copilot and the data agent read. |
+| `$412.92K` and `68.7%` | The same numbers `python validation/ground_truth.py` returns. Check them live if you want the room to trust the rest. |
+| `104.9%` on the YoY card | Wrong, and deliberately left in the write-up below. It is the most useful thing on the page. |
+| Gross Margin % is its own chart, not a second series on the sales chart | A rate and an amount on one axis is the most common way a generated page misleads. |
+| Category and Channel as separate bar charts | These are the two splits the audience always asks for next, so answering them before the question is asked keeps the demo moving. |
+| Region and Year slicers in the header band | Every number on the page is qualified by a visible filter state. |
+
+Two of the visuals on this page, `Total Net Sales by Year-Month` and `Net Sales by
+Category`, are pinned as verified answers in [phase 4](04-prep-for-ai.md), along with
+`Total Net Sales by Region` on the store page. That is why they are worth building
+properly: a verified answer returns the visual itself rather than a freshly generated
+query, so whatever you pin is what the audience sees.
+
+### The bug in this screenshot, and why it is the best slide in the deck
+
+Look at the fifth card. It reads `104.9%`. Net sales did not grow 105 percent.
+
+`Net Sales YoY %` is `DIVIDE([Total Net Sales] - [Net Sales PY], [Net Sales PY])`, and the
+DAX is correct. The card was wrong because it had no year filter. With the whole model in
+context, `Total Net Sales` covers 2024 and 2025 while `SAMEPERIODLASTYEAR` can only reach
+back to 2024, so the card compared two years of sales against one. Filtered to 2025 the
+same measure returns **4.9%**, which is the real number.
+
+The card is now pinned to 2025 and retitled `NET SALES YOY % (2025 VS 2024)`. The
+screenshot above predates that fix, so recapture it if you are updating these docs.
+
+Two things worth saying out loud when you show this:
+
+1. Copilot generated a card that was **plausible, well formatted, and wrong**. Nothing in
+   the visual flagged it. Only checking the number against the data caught it.
+2. Time intelligence at a grand total is the most common version of this failure. Any
+   measure built on `SAMEPERIODLASTYEAR`, `DATEADD` or `TOTALYTD` needs a single period in
+   context to mean anything, and a card with no filter does not have one.
+
+This is also why phase 4 matters. The AI instructions tell Copilot and the data agent that
+`Net Sales YoY %` needs a single year in context, so the same trap does not get reproduced
+in a chat answer where there is no visual to inspect.
 
 ---
 
