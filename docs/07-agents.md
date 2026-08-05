@@ -162,7 +162,7 @@ for every agent and every workload, instead of once per report.
 | Entity type | The reusable definition of a real world thing | `Store`, `Product`, `Sales` |
 | Entity instance | One concrete occurrence | The Midtown store |
 | Property | A named fact with a type | `Store.Region` |
-| Relationship type | A typed, directional link | `Sales_has_Store` |
+| Relationship type | A typed, directional link with cardinality | `Sales_has_Store` |
 | Data binding | Link from an entity type to a real OneLake table | `Store` bound to `dim_store` |
 | Contextualization | Link from a *relationship* to the table that joins both sides | `Sales_has_Store` bound to `fact_sales` |
 | Ontology graph | The queryable instance graph | Store to Sales to Product paths |
