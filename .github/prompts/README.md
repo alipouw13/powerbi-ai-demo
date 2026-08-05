@@ -187,16 +187,6 @@ Channel has exactly three values: In Store, Mobile Order, Delivery.
 Never sum year, month_number, day_of_week_number, or any column ending in _key.
 ```
 
-Verified answers to set, one per visual:
-
-```text
-Trigger phrases: net revenue by region, revenue by region, sales by region
-```
-
-```text
-Trigger phrases: revenue trend, revenue by month, monthly revenue
-```
-
 ---
 
 ## Phase 5, report (Power BI Copilot pane, author)
@@ -216,6 +206,16 @@ Create a page analysing channel mix over time.
 
 ```text
 Add a narrative visual that summarises revenue performance for 2025 compared to 2024.
+```
+
+After the visuals exist, set verified answers, one per visual:
+
+```text
+Trigger phrases: net revenue by region, revenue by region, sales by region
+```
+
+```text
+Trigger phrases: revenue trend, revenue by month, monthly revenue
 ```
 
 ---
