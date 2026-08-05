@@ -11,33 +11,33 @@ the demo succeeds or fails. Copilot cannot be better than the metadata you give 
 
 ## Target model
 
-Star schema. `fact_sales` in the middle, three dimensions around it.
+Star schema. `Sales` in the middle, three dimensions around it. The tables arrive from
+the lakehouse as `fact_sales`, `dim_date`, `dim_product` and `dim_store` with snake_case
+columns; rename them in the model before anything else, then build the relationships.
 
 | Relationship | Cardinality | Direction |
 | --- | --- | --- |
-| `fact_sales[date_key]` to `dim_date[date_key]` | many to one | single |
-| `fact_sales[product_key]` to `dim_product[product_key]` | many to one | single |
-| `fact_sales[store_key]` to `dim_store[store_key]` | many to one | single |
+| `Sales[Date Key]` to `Date[Date]` | many to one | single |
+| `Sales[Product Key]` to `Product[Product Key]` | many to one | single |
+| `Sales[Store Key]` to `Store[Store Key]` | many to one | single |
 
-Mark `dim_date` as the date table on `dim_date[date_key]`.
+Mark `Date` as the date table on `Date[Date]`.
 
-Measures live in `semantic-model/measures.dax`. There are 18, and that file is the answer
-key rather than a paste source: in the demo, Copilot in Fabric DAX query view proposes
-measures via `Suggest measures`, GitHub Copilot with the modeling MCP server reviews the
-resulting set for gaps and duplicates, and `measures.dax` is what you check the result
-against. Every measure carries a description, because Copilot reads measure descriptions
-and uses only the first 200 characters.
+Measures live in `semantic-model/measures.dax`. There are 21. Every one carries a
+description, because Copilot reads measure descriptions and uses only the first 200
+characters.
 
 ## The twelve modelling actions that decide AI quality
 
-1. Business-friendly names. `net_amount` is a column, `Net Revenue` is the measure a
-   person will ask for. Rename anything a human would not say out loud.
+1. Business-friendly names. `Net Amount` is a column, `Total Net Sales` is the measure a
+   person will ask for. Rename anything a human would not say out loud. Rename in the
+   model only; the lakehouse delta tables keep their snake_case names.
 2. Define every relationship. Copilot cannot join what you did not join.
 3. Correct data types. Dates as dates, money as decimal, never text.
-4. Set data categories. `dim_store[city]` as City, `dim_store[state]` as State or
+4. Set data categories. `Store[City]` as City, `Store[State]` as State or
    Province. This is how Copilot decides to draw a map.
-5. Set summarisation to `Don't summarize` on `year`, `month_number`,
-   `day_of_week_number`, and every `*_key` column. Otherwise Copilot will sum years.
+5. Set summarisation to `Don't summarize` on `Year`, `Month Number`,
+   `Day of Week Number`, and every key column. Otherwise Copilot will sum years.
 6. Add synonyms for business vocabulary: revenue, sales, turnover, takings.
 7. Hide the key columns and the raw amount columns from the report and from Q&A. Leave
    the measures visible. Fewer, better fields beat more fields.
@@ -61,7 +61,7 @@ do, and
 lists them.
 
 1. **Hierarchies** on dimensions people drill into. `Year > Quarter > Month > Day` on
-   `dim_date`.
+   `Date`.
 2. **Calculation group descriptions.** Model metadata does not include calculation items,
    so the calculation group column's description is the only place Copilot can learn
    that `YTD`, `MTD` and `PY` exist. Cut at 200 characters too, so list first, explain
@@ -105,8 +105,9 @@ scores pass A.
 ## Verification
 
 Every measure must return the value in `python validation/ground_truth.py`. Check at
-minimum: `Net Revenue` equals `$412,918.50`, `Gross Margin %` equals `68.65%`,
-`Units Sold` equals `94,417`. If a measure disagrees, fix the measure, not the test.
+minimum: `Total Net Sales` equals `$412,918.50`, `Gross Margin %` equals `68.7%`,
+`Total Quantity` equals `94,417`, `Order Count` equals `64,335`. If a measure disagrees,
+fix the measure, not the test.
 
 ## Docs
 

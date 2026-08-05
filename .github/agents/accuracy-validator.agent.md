@@ -69,10 +69,10 @@ then to an owner:
 | Symptom | Likely cause | Owner |
 | --- | --- | --- |
 | Summed a year or a key | Summarisation not set to `Don't summarize` | `semantic-model-author` |
-| Used `Gross Revenue` for "revenue" | No AI instruction defining revenue | `copilot-readiness` |
+| Used `Gross Sales` for "sales" or "revenue" | No AI instruction defining the default sales measure | `copilot-readiness` |
 | Could not join two tables | Missing relationship | `semantic-model-author` |
 | Picked an obscure column | AI data schema too wide | `copilot-readiness` |
-| Right measure, wrong period | `dim_date` not marked as a date table | `semantic-model-author` |
+| Right measure, wrong period | `Date` not marked as a date table | `semantic-model-author` |
 | Invented a region | Missing instruction to say when data does not exist | `copilot-readiness` |
 | Data agent chose the lakehouse for a margin question | Agent instructions do not route by topic | `data-agent-builder` |
 

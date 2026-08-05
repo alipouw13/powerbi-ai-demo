@@ -1,104 +1,140 @@
 // Contoso Coffee - DAX measures for the demo semantic model
 //
-// Paste these into Power BI Desktop, or let GitHub Copilot generate them from
-// docs/03-model.md and compare its output against this file.
+// This file mirrors the 21 measures that exist in the published ContosoCoffee model.
+// Table and column names are the model names (Sales, Date, Product, Store with Title
+// Case columns), not the lakehouse names (fact_sales, dim_date with snake_case columns).
+// The rename happens in the model on purpose: users and AI see the model, not the source.
 //
-// Every measure has a description. Copilot reads the first 200 characters of a
-// measure description, so the descriptions here are short and literal on purpose.
+// Every measure has a description. Copilot reads the first 200 characters of a measure
+// description, so the business meaning comes first and caveats come last.
 // Put them in the Description box in the Properties pane (Model view).
+//
+// Requires the Date table to be marked as a date table on Date[Date].
 
 // ---------------------------------------------------------------------------
 // Core amounts
 // ---------------------------------------------------------------------------
 
-// Description: Revenue after discounts. This is the default revenue measure and the one
-// to use for any question about sales, revenue, or turnover.
-Net Revenue =
-SUM ( fact_sales[net_amount] )
+// Description: Calculates total sales revenue after discounts, based on the current
+// filters such as date, product, store or channel. This is the default revenue measure
+// for the model.
+Total Net Sales =
+SUM ( 'Sales'[Net Amount] )
 
-// Description: Revenue before discounts are applied. Only use when the question is
-// explicitly about list price or pre-discount value.
-Gross Revenue =
-SUM ( fact_sales[gross_amount] )
+// Description: Calculates total sales value before any discounts or reductions, in the
+// current filter context.
+Gross Sales =
+SUM ( 'Sales'[Gross Amount] )
 
-// Description: Total value of discounts given.
-Discount Amount =
-SUM ( fact_sales[discount_amount] )
+// Description: Calculates the total value of discounts granted on sales for the
+// currently filtered period, products, stores or channels.
+Total Discount =
+SUM ( 'Sales'[Discount Amount] )
 
-// Description: Cost of goods sold for the items on the sales lines.
-Cost of Goods Sold =
-SUM ( fact_sales[cost_amount] )
+// Description: Calculates the total cost of goods sold for the sales transactions in the
+// current filter context.
+Total Cost =
+SUM ( 'Sales'[Cost Amount] )
 
-// Description: Net Revenue minus Cost of Goods Sold, in dollars.
+// Description: Calculates the total number of units sold for the filtered set of sales
+// rows.
+Total Quantity =
+SUM ( 'Sales'[Quantity] )
+
+// Description: Counts the number of orders in the filtered data set, where each row in
+// Sales represents a single order.
+Order Count =
+COUNTROWS ( 'Sales' )
+
+// ---------------------------------------------------------------------------
+// Margin and rates
+// ---------------------------------------------------------------------------
+
+// Description: Calculates profit by subtracting Total Cost from Total Net Sales for the
+// current filters.
 Gross Margin =
-[Net Revenue] - [Cost of Goods Sold]
+[Total Net Sales] - [Total Cost]
 
-// Description: Gross Margin as a percentage of Net Revenue.
+// Description: Shows gross margin as a percentage of Total Net Sales for the current
+// filter context.
 Gross Margin % =
-DIVIDE ( [Gross Margin], [Net Revenue] )
+DIVIDE ( [Gross Margin], [Total Net Sales] )
 
-// Description: Number of individual items sold. Not the number of orders.
-Units Sold =
-SUM ( fact_sales[quantity] )
+// Description: Shows the share of Gross Sales that was given away as discounts for the
+// current filters.
+Discount Rate % =
+DIVIDE ( [Total Discount], [Gross Sales] )
 
-// Description: Count of distinct sales order lines.
-Order Lines =
-COUNTROWS ( fact_sales )
+// ---------------------------------------------------------------------------
+// Per order and per unit
+// ---------------------------------------------------------------------------
 
-// Description: Average Net Revenue per sales order line.
-Average Line Value =
-DIVIDE ( [Net Revenue], [Order Lines] )
+// Description: Calculates the average net sales value per order (Total Net Sales divided
+// by Order Count) for the current filters.
+Average Order Value =
+DIVIDE ( [Total Net Sales], [Order Count] )
+
+// Description: Calculates the average number of units sold per order for the current
+// filter context.
+Units per Order =
+DIVIDE ( [Total Quantity], [Order Count] )
+
+// Description: Calculates the average net revenue per unit sold, dividing Total Net Sales
+// by Total Quantity for the current filters. Differs from Average Order Value, which is
+// measured per order rather than per unit.
+Average Selling Price =
+DIVIDE ( [Total Net Sales], [Total Quantity] )
 
 // ---------------------------------------------------------------------------
 // Time intelligence
-// Requires dim_date to be marked as a date table on dim_date[date_key].
 // ---------------------------------------------------------------------------
 
-// Description: Net Revenue from the first day of the year to the current date in context.
-Net Revenue YTD =
-TOTALYTD ( [Net Revenue], dim_date[date_key] )
+// Description: Calculates year-to-date Total Net Sales from the start of the calendar
+// year up to the last date in the current filter context.
+Net Sales YTD =
+TOTALYTD ( [Total Net Sales], 'Date'[Date] )
 
-// Description: Net Revenue for the same period one year earlier.
-Net Revenue LY =
-CALCULATE ( [Net Revenue], SAMEPERIODLASTYEAR ( dim_date[date_key] ) )
+// Description: Calculates quarter-to-date Total Net Sales from the start of the calendar
+// quarter up to the last date in the current filter context.
+Net Sales QTD =
+TOTALQTD ( [Total Net Sales], 'Date'[Date] )
 
-// Description: Change in Net Revenue versus the same period last year, in dollars.
-Net Revenue YoY =
-[Net Revenue] - [Net Revenue LY]
+// Description: Returns Total Net Sales for the same period in the previous calendar year,
+// aligned to the current date filters.
+Net Sales PY =
+CALCULATE ( [Total Net Sales], SAMEPERIODLASTYEAR ( 'Date'[Date] ) )
 
-// Description: Percentage growth in Net Revenue versus the same period last year.
-Net Revenue YoY % =
-DIVIDE ( [Net Revenue YoY], [Net Revenue LY] )
+// Description: Shows the year-over-year growth rate of Total Net Sales by comparing the
+// current period to the same period last year.
+Net Sales YoY % =
+DIVIDE ( [Total Net Sales] - [Net Sales PY], [Net Sales PY] )
+
+// Description: Returns Total Net Sales for the previous calendar month, aligned to the
+// current date filters. Pair with Net Sales MoM % to show month-over-month trend.
+Net Sales PM =
+CALCULATE ( [Total Net Sales], PREVIOUSMONTH ( 'Date'[Date] ) )
+
+// Description: Shows the month-over-month growth rate of Total Net Sales by comparing the
+// current month to the immediately preceding month.
+Net Sales MoM % =
+DIVIDE ( [Total Net Sales] - [Net Sales PM], [Net Sales PM] )
 
 // ---------------------------------------------------------------------------
-// Mix and ranking
+// Store productivity and mix
 // ---------------------------------------------------------------------------
 
-// Description: This item's Net Revenue as a share of all Net Revenue in the current filter.
-Revenue Share % =
-DIVIDE (
-    [Net Revenue],
-    CALCULATE ( [Net Revenue], REMOVEFILTERS ( dim_product ), REMOVEFILTERS ( dim_store ) )
-)
+// Description: Counts the distinct stores that recorded at least one sale in the current
+// filter context. Use as the store denominator for per-store metrics.
+Selling Stores =
+DISTINCTCOUNT ( 'Sales'[Store Key] )
 
-// Description: Name of the store with the highest Net Revenue in the current filter context.
-Top Store by Revenue =
-CALCULATE (
-    SELECTEDVALUE ( dim_store[store_name] ),
-    TOPN ( 1, ALLSELECTED ( dim_store[store_name] ), [Net Revenue], DESC )
-)
+// Description: Calculates average Total Net Sales per selling store for the current
+// filters. Prefer this over Total Net Sales when comparing regions or store types,
+// because those groups contain different numbers of stores.
+Net Sales per Store =
+DIVIDE ( [Total Net Sales], [Selling Stores] )
 
-// Description: Name of the product with the highest Net Revenue in the current filter context.
-Top Product by Revenue =
-CALCULATE (
-    SELECTEDVALUE ( dim_product[product_name] ),
-    TOPN ( 1, ALLSELECTED ( dim_product[product_name] ), [Net Revenue], DESC )
-)
-
-// Description: Net Revenue on Saturdays and Sundays only.
-Weekend Revenue =
-CALCULATE ( [Net Revenue], dim_date[is_weekend] = TRUE () )
-
-// Description: Net Revenue on Monday to Friday only. Pairs with Weekend Revenue.
-Weekday Revenue =
-CALCULATE ( [Net Revenue], dim_date[is_weekend] = FALSE () )
+// Description: Shows each item's share of Total Net Sales relative to all currently
+// selected items, respecting slicers and report filters.
+% of Total Net Sales =
+DIVIDE ( [Total Net Sales], CALCULATE ( [Total Net Sales], ALLSELECTED () ) )

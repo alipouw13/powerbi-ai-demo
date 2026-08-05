@@ -45,13 +45,13 @@ meaning starts at character 300, just moves the problem somewhere harder to find
 Use `semantic-model/ai-instructions.md` as the source text. In short:
 
 - **AI data schema:** include the three dimension tables and the measures. Exclude every
-  `*_key` column and the raw `gross_amount`, `discount_amount`, `cost_amount` columns.
-- **AI instructions:** define revenue as `Net Revenue`, not `Gross Revenue`. Define the
-  fiscal year as the calendar year. Say that a "store" is a physical location and a
-  "region" groups stores. Say that "best" and "top" mean highest `Net Revenue` unless
-  the user says otherwise.
-- **Verified answers:** at minimum, pin one visual for `net revenue by region` and one
-  for `revenue trend by month`. These are the two questions every audience asks.
+  key column and the raw `Gross Amount`, `Discount Amount`, `Cost Amount` columns.
+- **AI instructions:** define sales and revenue as `Total Net Sales`, not `Gross Sales`.
+  Define the fiscal year as the calendar year. Say that a "store" is a physical location
+  and a "region" groups stores. Say that "best" and "top" mean highest `Total Net Sales`
+  unless the user says otherwise.
+- **Verified answers:** at minimum, pin one visual for net sales by region and one
+  for the monthly net sales trend. These are the two questions every audience asks.
 
 ## Approved for Copilot
 

@@ -1,6 +1,6 @@
 ---
 name: data-agent-builder
-description: Builds and publishes the Contoso Coffee Fabric data agent over the semantic model and the lakehouse, then wires it into Copilot in Power BI. Use for "create the data agent", "add a data source", "publish the agent", "the agent picks the wrong source".
+description: Builds and publishes the Contoso Coffee Fabric data agent over the ContosoCoffee semantic model, then wires it into Copilot in Power BI. Use for "create the data agent", "add a data source", "publish the agent", "the agent gives the wrong number".
 tools: ['microsoft_docs_search', 'microsoft_docs_fetch', 'read', 'search']
 ---
 
@@ -19,42 +19,73 @@ conversational analyst scoped to data you choose, and it is generally available.
 - Read access to every data source you add.
 - To use the agent from Copilot in Power BI, the standalone Copilot experience tenant
   setting must be on.
+- **Phase 4 complete.** Prep data for AI is what makes this agent accurate. Do not start
+  phase 7 to work around an unfinished phase 4.
+
+## One source, on purpose
+
+This agent gets exactly one source: the `ContosoCoffee` semantic model. Do not add the
+`LH_ContosoCoffee` lakehouse.
+
+The lakehouse holds the same numbers in raw, ungoverned form. Adding it hands the
+orchestrator a second route to "what was revenue in 2025", one that bypasses every
+measure, description and business rule from phases 3 and 4. You would then write routing
+instructions to talk the agent out of using a source you chose to give it.
+
+An agent supports up to five sources. Fewer sources means less ambiguity, better routing,
+and lower latency. The only source worth adding later is the optional ontology, because
+it answers a different shape of question rather than duplicating this one.
 
 ## Build it
 
 1. In the workspace, `+ New item`, search `Fabric data agent`, select it.
 2. Name it `Contoso Coffee Analyst`.
-3. The OneLake catalog opens. Add two sources:
-   - the `ContosoCoffee` semantic model
-   - the `LH_ContosoCoffee` lakehouse
-   A single agent supports up to five sources in any combination.
-4. In the Explorer pane, tick the tables the agent may use. For the lakehouse, pick the
-   four demo tables. Only tables are selectable, not files.
-5. `Data agent instructions`. Route the questions. For example: send anything about
-   revenue, margin, or trend to the semantic model, because the measures live there;
-   send row-level or exploratory questions to the lakehouse.
-6. `Example queries`. Add natural language and query pairs for the **lakehouse** source.
-   Example pairs are **not supported for Power BI semantic model sources**. For the
-   semantic model, verified answers in Prep data for AI are the equivalent, which is
-   another reason phase 4 comes first.
-7. Test in the chat canvas.
+3. The OneLake catalog opens. Add the `ContosoCoffee` semantic model.
+4. In the Explorer pane, tick `Date`, `Sales`, `Product`, `Store`. Select the **same
+   tables chosen in the phase 4 AI data schema**. If the two disagree, the data agent and
+   the Copilot pane answer differently and neither can be trusted.
+5. `Data agent instructions`. Paste the block from `.github/prompts/README.md`, phase 7.
+   Read "where the work actually happens" below before you write anything here.
+6. `Example queries`. Not available for semantic model sources, and neither are data
+   source instructions or data source descriptions. Verified answers in Prep for AI are
+   the equivalent. This is another reason phase 4 comes first.
+7. Test in the chat canvas. Expand the generated DAX on every answer and read it before
+   believing the number.
 8. `Publish`. Write a real description, it becomes the MCP tool description and the
    Microsoft 365 Copilot description.
 
+## Where the work actually happens
+
+Say this out loud, it is the most useful point in the phase.
+
+**Agent-level instructions are not passed to the DAX generation step.** For a semantic
+model source, the DAX generation tool reads only model metadata, report visual metadata,
+and the Prep data for AI configuration. Business definitions written in the agent
+instruction box are ignored when the query is built.
+
+| Box | What belongs in it |
+| --- | --- |
+| Prep data for AI, on the model | Business definitions, terminology, which measure to use, closed value lists, refusal rules. Everything that changes the DAX. |
+| Data agent instructions | Objective, scope, tone, response formatting, abbreviations, out-of-scope handling. Everything that shapes the reply after the DAX has run. |
+
+Structure the agent instruction box with the recommended headings: `## Objective`,
+`## Data sources`, `## Key terminology`, `## Response guidelines`,
+`## Handling common topics`.
+
+Also worth saying: for a semantic model source only **Read** permission is required.
+Build permission is not needed for agent-driven queries.
+
 ## How it answers
 
-The agent picks a source, then generates a query with the matching translator:
-NL2DAX for a Power BI semantic model over the XMLA endpoint, NL2SQL for a lakehouse or
-warehouse, NL2KQL for a KQL database. It validates the query, executes it read only
-under the calling user's permissions, and formats the result.
+The agent picks a source, then generates a query with the matching translator. With a
+single semantic model source that is always NL2DAX over the XMLA endpoint. NL2SQL applies
+to a lakehouse or warehouse and NL2KQL to a KQL database, neither of which this agent
+uses. It validates the query, executes it read only under the calling user's permissions,
+and formats the result.
 
-Two things surprise people, so say them:
-
-- For a semantic model source, only **Read** permission is required. Build permission is
-  not needed for agent-driven queries.
-- **Agent-level instructions are not passed to the DAX generation step.** For semantic
-  model questions, what shapes the answer is the Prep data for AI configuration on the
-  model. Phase 4 is doing the work here, not the agent instruction box.
+The DAX generation tool also reads report visual metadata: visual titles, the columns and
+measures each visual uses, and applied filters. The phase 5 report is therefore part of
+the grounding, which is why its visuals carry descriptive titles.
 
 ## Consuming it
 
@@ -79,7 +110,12 @@ Assistants API, which has an announced shutdown date of 26 August 2026.
 
 Ask the same 15 questions from `validation/question-bank.md`. Score them in
 `validation/scorecard.md` next to the Copilot scores. Two AI surfaces over one model is
-a much more interesting comparison than either one alone.
+a much more interesting comparison than either one alone, and because both read the same
+Prep for AI configuration, a disagreement between them is a real finding.
+
+When an answer is wrong, read the generated DAX and fix the cause in this order: the model
+itself, then the AI data schema, then verified answers, then AI instructions. It is very
+rarely the agent instruction box, because that box never reached the query.
 
 ## Docs
 
@@ -87,12 +123,21 @@ a much more interesting comparison than either one alone.
 - https://learn.microsoft.com/fabric/data-science/how-to-create-data-agent
 - https://learn.microsoft.com/fabric/data-science/data-agent-tenant-settings
 - https://learn.microsoft.com/fabric/data-science/semantic-model-best-practices
+- https://learn.microsoft.com/fabric/data-science/data-agent-semantic-model
+- https://learn.microsoft.com/fabric/data-science/data-agent-configurations
 - https://learn.microsoft.com/fabric/data-science/data-agent-mcp-server
 
 ## Anti-patterns
 
+- Adding the lakehouse alongside the semantic model, then writing routing instructions to
+  stop the agent using it. Do not add it.
 - Adding all five source slots because you can. Fewer sources, better routing.
+- Writing business definitions into the agent instruction box. They are never passed to
+  DAX generation. They belong in Prep data for AI.
+- Ticking a different set of tables here than in the phase 4 AI data schema, then
+  wondering why the agent and the Copilot pane disagree.
 - Trying to add example query pairs to a semantic model source and concluding the
   product is broken.
 - Publishing with the default description, then wondering why Microsoft 365 Copilot
   never picks the agent.
+- Reporting a number without reading the DAX that produced it.

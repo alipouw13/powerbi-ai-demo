@@ -93,13 +93,17 @@ capacity. That one is relevant to [phase 6](06-insights.md), not here.
 
 ## Relationships
 
+The tables arrive from the lakehouse named `fact_sales`, `dim_date`, `dim_product` and
+`dim_store` with snake_case columns. Rename them in the model first (step 1 below), then
+build the relationships. The names in this guide are the post-rename model names.
+
 | From | To | Cardinality | Direction |
 | --- | --- | --- | --- |
-| `fact_sales[date_key]` | `dim_date[date_key]` | many to one | single |
-| `fact_sales[product_key]` | `dim_product[product_key]` | many to one | single |
-| `fact_sales[store_key]` | `dim_store[store_key]` | many to one | single |
+| `Sales[Date Key]` | `Date[Date]` | many to one | single |
+| `Sales[Product Key]` | `Product[Product Key]` | many to one | single |
+| `Sales[Store Key]` | `Store[Store Key]` | many to one | single |
 
-Then mark `dim_date` as the date table, on `dim_date[date_key]`.
+Then mark `Date` as the date table, on `Date[Date]`.
 
 Missing relationships are the single most common reason an AI answer comes back wrong.
 Copilot cannot join what you did not join.
@@ -108,10 +112,8 @@ Copilot cannot join what you did not join.
 
 ## Measures
 
-The reference set is 18 measures, in
-[`semantic-model/measures.dax`](../semantic-model/measures.dax). You can paste them in —
-but the demo is better if you let Copilot in Fabric write them and use that file as the
-answer key. Every measure needs a description, and the description matters: **Copilot
+There are 21, in [`semantic-model/measures.dax`](../semantic-model/measures.dax). Add
+them all. Every one has a description in the file, and the description matters: **Copilot
 reads measure descriptions, and uses only the first 200 characters.**
 
 ### Let Copilot in Fabric propose them first
@@ -212,13 +214,15 @@ The full checklist, with everything that page covers, is
 and you run it as the gate in [phase 3b](03b-readiness-audit.md).
 
 1. **Business friendly names.** Rename anything a person would not say out loud.
-   `net_amount` is a column. `Net Revenue` is what someone asks for.
+   `net_amount` is the lakehouse column. `Net Amount` is the model column, and
+   `Total Net Sales` is what someone asks for. Rename in the model, leave the lakehouse
+   alone.
 2. **All three relationships defined.**
 3. **Correct data types.** Dates as dates, money as decimal, never text.
-4. **Data categories.** `dim_store[city]` as City, `dim_store[state]` as State or
+4. **Data categories.** `Store[City]` as City, `Store[State]` as State or
    Province. This is how Copilot decides to draw a map.
-5. **Summarisation set to `Don't summarize`** on `year`, `month_number`,
-   `day_of_week_number`, and every `*_key` column. Otherwise Copilot will sum years and
+5. **Summarisation set to `Don't summarize`** on `Year`, `Month Number`,
+   `Day of Week Number`, and every key column. Otherwise Copilot will sum years and
    report a total year of 4,050.
 6. **Synonyms** for business vocabulary: revenue, sales, turnover, takings.
 7. **Hide** the key columns and the raw amount columns from the report and from Q&A.
@@ -240,7 +244,7 @@ limit, but someone will ask.
 Not in the list above because this model does not need all of them, but real models do.
 
 1. **Hierarchies.** Learn lists them explicitly as a model structure requirement. Build
-   `Year > Quarter > Month > Day` on `dim_date`. It gives Copilot a drill path instead
+   `Year > Quarter > Month > Day` on `Date`. It gives Copilot a drill path instead
    of a pile of date columns.
 2. **Calculation group descriptions.** Model metadata does not include calculation items
    at all. If you have a calculation group with `YTD`, `MTD` and `PY`, the only way
@@ -273,9 +277,10 @@ Build a table visual and check at least these three:
 
 | Measure | Expected |
 | --- | --- |
-| `Net Revenue` | $412,918.50 |
-| `Gross Margin %` | 68.65% |
-| `Units Sold` | 94,417 |
+| `Total Net Sales` | $412,918.50 |
+| `Gross Margin %` | 68.7% |
+| `Total Quantity` | 94,417 |
+| `Order Count` | 64,335 |
 
 If a measure disagrees, fix the measure. Never adjust the test.
 

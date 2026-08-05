@@ -17,7 +17,7 @@ detail to a specialist and then you check what came back.
 | 0 Setup | you, with `demo-orchestrator` | Capacity, tenant settings and MCP servers are ready |
 | 1 Provision | `fabric-provisioner` | Workspace and lakehouse exist |
 | 2 Load | `data-loader` | Four delta tables exist with correct row counts |
-| 3 Model | `semantic-model-author` | Star schema plus 18 measures, all with descriptions |
+| 3 Model | `semantic-model-author` | Star schema plus 21 measures, all with descriptions |
 | 3b Readiness audit | `model-readiness-auditor` | Every Critical finding is closed or consciously accepted |
 | 4 Prep for AI | `copilot-readiness` | AI instructions, AI data schema, verified answers, Approved for Copilot |
 | 5 Report | `report-builder` | A report page built by Power BI Copilot from a prompt, checked against ground truth, and optionally restyled from a screenshot with the `report-restyle-from-screenshot` skill |
