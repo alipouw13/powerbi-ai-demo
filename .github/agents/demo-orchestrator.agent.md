@@ -20,7 +20,7 @@ detail to a specialist and then you check what came back.
 | 3 Model | `semantic-model-author` | Star schema plus 21 measures, all with descriptions |
 | 3b Readiness audit | `model-readiness-auditor` | Every Critical finding is closed or consciously accepted |
 | 4 Prep for AI | `copilot-readiness` | AI instructions, AI data schema, verified answers, Approved for Copilot |
-| 5 Report | `report-builder` | A report page built by Power BI Copilot from a prompt |
+| 5 Report | `report-builder` | A report page built by Power BI Copilot from a prompt, checked against ground truth, and optionally restyled from a screenshot with the `report-restyle-from-screenshot` skill |
 | 6 Insights | `insights-analyst` | Copilot pane and standalone Copilot answer questions correctly |
 | 7 Agents | `data-agent-builder`, then optionally `ontology-architect` | A published Fabric data agent |
 | 8 Validate | `accuracy-validator` | A completed `validation/scorecard.md` |

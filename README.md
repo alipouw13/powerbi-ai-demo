@@ -30,11 +30,15 @@ after. The gap between those two scores is the entire demo. Everything else is c
 **Contoso Coffee**, a fictional retailer. 8 stores, 3 regions, 12 products, 2 years of
 daily sales. About 64,000 rows, which is deliberately tiny so nothing takes long.
 
-```
-CSVs  ->  Lakehouse  ->  semantic model  ->  report  ->  Copilot  ->  data agent
-                              ^                                          |
-                              +--------- the accuracy loop --------------+
-```
+![Power BI AI lifecycle architecture](diagram/powerbi-ai-demo-architecture.png)
+
+Four columns, left to right: the tools on your machine, the Fabric workspace they create,
+the work that makes the model AI ready, and the four front doors onto it. Underneath,
+the accuracy loop, with the one arrow that matters running back into the model rather
+than into the prompt.
+
+The diagram is generated, not drawn, so it stays true as the demo changes. See
+[`diagram/`](diagram/) to regenerate it or point it at your own data.
 
 ---
 
@@ -47,8 +51,8 @@ CSVs  ->  Lakehouse  ->  semantic model  ->  report  ->  Copilot  ->  data agent
 | 2 | Load | 10 min | **GitHub Copilot** writes the ingestion notebook | [02-load](docs/02-load.md) |
 | 3 | Model | 25 min | **GitHub Copilot** writes DAX measures and descriptions; **DAX Copilot** explains them | [03-model](docs/03-model.md) |
 | 3b | Readiness audit | 15 min | Nothing. Score the model against the Microsoft Learn checklist before you score the AI. | [03b-readiness-audit](docs/03b-readiness-audit.md) |
-| 4 | Prep for AI | 20 min | **Prep data for AI** (preview): AI instructions, AI data schema, verified answers, Approved for Copilot (preview) | [04-prep-for-ai](docs/04-prep-for-ai.md) |
-| 5 | Report | 15 min | **Power BI Copilot** builds report pages from a prompt | [05-report](docs/05-report.md) |
+| 4 | Prep for AI | 20 min | **Prep data for AI** (preview): AI instructions and AI data schema; Approved for Copilot (preview) | [04-prep-for-ai](docs/04-prep-for-ai.md) |
+| 5 | Report | 15 min | **Power BI Copilot** builds report pages from a prompt, then verified answers are set on the finished visuals | [05-report](docs/05-report.md) |
 | 6 | Insights | 15 min | **Copilot pane** and **standalone Copilot** answer business questions | [06-insights](docs/06-insights.md) |
 | 7 | Agents | 25 min | **Fabric data agent** over the model and lakehouse; **Fabric IQ ontology**, optional | [07-agents](docs/07-agents.md) |
 | 8 | Validate | 15 min | Nothing. This is the human check on all of the above. | [08-validate](docs/08-validate.md) |
@@ -177,38 +181,172 @@ supported by Microsoft. It is built on
 
 ---
 
-## Specialist agents
+## GitHub Copilot agents and skills
 
-Every phase from 1 onward has an agent definition in [`.github/agents/`](.github/agents),
-plus an orchestrator that routes between them. Phase 0 is setup, so it has no agent. They are
-prompt files, so they work in GitHub Copilot in VS Code and read fine as documentation
-if you would rather do it by hand.
+This repository includes 12 workspace custom agents in
+[`.github/agents/`](.github/agents). An agent defines a role, the tools it may use, and
+the instructions it follows. The agents mirror the demo lifecycle so that each phase has
+a clear owner, while the orchestrator keeps the handoffs and accuracy loop consistent.
 
-| Agent | Owns |
-| --- | --- |
-| `demo-orchestrator` | Runs the whole demo, routes to the others |
-| `fabric-provisioner` | Phase 1, workspace and lakehouse via Fabric MCP |
-| `data-loader` | Phase 2, CSVs to Lakehouse tables |
-| `semantic-model-author` | Phase 3, DAX, relationships, metadata |
-| `model-readiness-auditor` | Phase 3b, the AI readiness audit before pass A |
-| `copilot-readiness` | Phase 4, Prep data for AI, Approved for Copilot |
-| `report-builder` | Phase 5, Copilot-authored report pages |
-| `insights-analyst` | Phase 6, consumption and the question bank |
-| `data-agent-builder` | Phase 7a, Fabric data agent |
-| `ontology-architect` | Phase 7b, Fabric IQ ontology, optional |
-| `accuracy-validator` | Phase 8, scoring, diagnosis, the loop |
+### Agent inventory
 
-Copy-paste prompts for each phase are in
-[`.github/prompts/README.md`](.github/prompts/README.md).
+| Agent | When to use it | Why it is relevant here |
+| --- | --- | --- |
+| [`demo-orchestrator`](.github/agents/demo-orchestrator.agent.md) | Start here for "run the demo", "where am I?", or "what is next?" | Owns the end-to-end sequence, routes work to the right specialist, and prevents phases or validation passes from being skipped. |
+| [`solution-architect`](.github/agents/solution-architect.agent.md) | Ask it to draw, regenerate, or adapt the architecture. | Maintains the generated draw.io, SVG, and PNG architecture artifacts and keeps the diagram aligned with the implementation. |
+| [`fabric-provisioner`](.github/agents/fabric-provisioner.agent.md) | Use for workspace, capacity, lakehouse, Fabric MCP, or authentication questions. | Owns phase 1 and provisions the Fabric workspace and lakehouse through MCP under the signed-in user's permissions. |
+| [`data-loader`](.github/agents/data-loader.agent.md) | Use to upload the CSVs, write the ingestion notebook, create Delta tables, or diagnose row counts. | Owns phase 2 and verifies that the four synthetic tables have the exact types, counts, and totals required by every later phase. |
+| [`semantic-model-author`](.github/agents/semantic-model-author.agent.md) | Use for star schema design, relationships, DAX, descriptions, synonyms, categories, and summarisation. | Owns phase 3 and builds the governed semantic model that all Copilot and data-agent answers depend on. |
+| [`model-readiness-auditor`](.github/agents/model-readiness-auditor.agent.md) | Use for an AI-readiness pre-flight or to predict which question-bank answers will fail. | Owns gate 3b, ranks model defects by their likely effect on accuracy, and sends fixes back to the model author. |
+| [`copilot-readiness`](.github/agents/copilot-readiness.agent.md) | Use for Prep data for AI, AI instructions, the AI data schema, verified answers, or Approved for Copilot. | Owns phase 4 and captures business meaning on the semantic model before the post-preparation accuracy pass. |
+| [`report-builder`](.github/agents/report-builder.agent.md) | Use to create report pages or narrative visuals with Power BI Copilot, restyle a page from an uploaded screenshot, and then harden the result. | Owns phase 5, checks every Copilot-generated visual against the repository's ground truth instead of judging appearance alone, and uses the `report-restyle-from-screenshot` skill to turn a generic Copilot page into a designed one without touching the data bindings. |
+| [`insights-analyst`](.github/agents/insights-analyst.agent.md) | Use to ask business questions in the report Copilot pane or standalone Copilot. | Owns phase 6, behaves like a model-naive consumer, and records answers without rewording questions to force a pass. |
+| [`data-agent-builder`](.github/agents/data-agent-builder.agent.md) | Use to create, configure, test, publish, or troubleshoot the Fabric data agent. | Owns the main part of phase 7, including source selection and routing between the semantic model and lakehouse. |
+| [`ontology-architect`](.github/agents/ontology-architect.agent.md) | Use for the optional Fabric IQ ontology (preview), entity types, bindings, and relationships. | Owns optional phase 7b and shows how reusable business concepts can extend the same governed model. |
+| [`accuracy-validator`](.github/agents/accuracy-validator.agent.md) | Use to run the question bank, fill in the scorecard, diagnose a wrong answer, or validate the repo. | Owns phase 8 and closes the loop by comparing every AI surface with computed ground truth and routing each defect to its real owner. |
+
+### Skill inventory
+
+Repository-local Agent Skills live in [`.github/skills/`](.github/skills).
+
+| Skill | When it loads | What it does |
+| --- | --- | --- |
+| [`report-restyle-from-screenshot`](.github/skills/report-restyle-from-screenshot/SKILL.md) | "make this page look like this screenshot", "the Copilot page is ugly", "apply this design to my report", "restyle the report" | Reads an uploaded design screenshot in GitHub Copilot Chat, turns it into a design spec, and applies the layout, palette, and theme to the published report by rewriting its PBIR definition through the Fabric MCP server. Field bindings and measures are out of scope, so a restyle cannot move a number. |
+
+The `report-builder` agent uses this skill in phase 5, after the Copilot-generated page
+has been checked against ground truth. It can also be invoked directly with
+`/report-restyle-from-screenshot`.
+
+Note that the "skill picker" mentioned in phase 4 is a Power BI Copilot product control,
+and is not the same thing as a GitHub Copilot Agent Skill.
+
+Add a repository skill when a focused procedure should be reusable by several agents,
+such as regenerating and checking synthetic data, validating all documentation numbers,
+or running the architecture render checks. Skills are loaded only when their name and
+description match the request, while selecting an agent applies that agent's complete
+persona and tool configuration.
+
+### Use the agents
+
+1. Clone the repository and open its root folder in VS Code with GitHub Copilot Chat
+   installed.
+2. Open Chat, select **Agent** mode, and choose one of the repository agents from the
+   agent picker. If the list was open before cloning or pulling the files, run
+   **Developer: Reload Window**.
+3. Choose `demo-orchestrator` if you are unsure where to start. Otherwise select the
+   specialist for the current phase.
+4. Give the agent a concrete task and the current state. Examples:
+
+   ```text
+   I have a Fabric capacity but no workspace. Start the demo and give me the next
+   verified step.
+   ```
+
+   ```text
+   Audit the ContosoCoffee model against semantic-model/ai-readiness-checklist.md and rank
+   the predicted question-bank failures.
+   ```
+
+   ```text
+   Run the repository checks, compare my recorded pass B answers with ground truth, and
+   route each failure to its owning agent.
+   ```
+
+5. Review and approve tool calls. Agents that use Fabric or Power BI MCP servers still
+   act with your identity and permissions. Enable the required MCP tools in Chat before
+   asking an agent to change a Fabric resource.
+6. Verify each result using the phase's stated check. An agent response is not evidence
+   that a workspace, table, measure, report, or scorecard is correct.
+
+The copy-paste phase prompts in
+[`.github/prompts/README.md`](.github/prompts/README.md) work with the matching agent, or
+as standalone prompts when you prefer to perform a phase manually.
+
+### Use Agent Skills
+
+VS Code discovers project skills from `.github/skills/<skill-name>/SKILL.md`. Relevant
+skills load automatically from their `name` and `description`. To invoke one explicitly,
+type `/` in Chat and select the skill, or enter `/skill-name` followed by task context.
+Type `/skills` to open the skill configuration menu.
+
+### Build or change an agent
+
+Agents are Markdown configuration, so there is no compile or packaging step.
+
+1. Create `.github/agents/<name>.agent.md`, or run **Chat: New Custom Agent**.
+2. Add YAML frontmatter with a specific `name`, a `description` that says when to use the
+   agent, and the smallest practical `tools` list.
+3. In the Markdown body, define the role, repo files it treats as source of truth, the
+   ordered workflow, verification requirements, handoff owner, and anti-patterns.
+4. Keep this repo's ownership model intact: a new phase owner belongs in the phase table,
+   the agent inventory, and the orchestrator's routing table.
+5. Reload VS Code, select the agent from the picker, run one expected request and one
+   out-of-scope request, and confirm its tools and handoff behavior are correct.
+
+Use this minimal shape:
+
+```markdown
+---
+name: example-agent
+description: Does one repository-specific job. Use for "example trigger" or "example failure".
+tools: ['read', 'search']
+---
+
+You are the **example-agent**. State what you own, what files are authoritative, the
+steps to follow, how to verify the outcome, and which agent owns any follow-up.
+```
+
+See the official
+[VS Code custom agents documentation](https://code.visualstudio.com/docs/agent-customization/custom-agents)
+for optional fields such as models, subagents, handoffs, and user visibility.
+
+### Build or change a skill
+
+Use a skill for a reusable capability, not for another phase persona.
+
+1. Create `.github/skills/<skill-name>/SKILL.md`, or enter `/create-skill` in Chat.
+2. Make the directory name and frontmatter `name` identical. Use lowercase letters,
+   numbers, and hyphens only.
+3. Write a precise `description` that states both what the skill does and when Copilot
+   should load it.
+4. Put the ordered procedure, expected inputs and outputs, edge cases, and verification in
+   the body. Add optional scripts, references, examples, or templates beside `SKILL.md`
+   and link to each resource from the skill.
+5. Reload VS Code, check that the skill appears in the `/` menu, invoke it against a known
+   case, and verify the persistent output. Also test a request that should not activate
+   it, so the description does not match too broadly.
+
+Use this minimal shape:
+
+```markdown
+---
+name: example-skill
+description: Runs and verifies one reusable repository workflow. Use when asked to perform that workflow.
+---
+
+# Example skill
+
+1. Read the relevant repository source of truth.
+2. Perform the workflow.
+3. Run the repository's existing verification.
+4. Report changed artifacts and any failed checks.
+```
+
+See the official
+[VS Code Agent Skills documentation](https://code.visualstudio.com/docs/agent-customization/agent-skills)
+for the full `SKILL.md` format, automatic discovery, slash-command behavior, and optional
+resource layout.
 
 ---
 
 ## What is in the repo
 
 ```
-.github/agents/      11 specialist agents: an orchestrator, then one or more per phase from 1 onward
+.github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
+.github/skills/      reusable procedures agents can load, such as restyling a report page from a screenshot
 .github/prompts/     copy-paste prompts, one section per phase from 1 onward
 data/                synthetic CSVs and the seeded generator that made them
+diagram/             the architecture diagram and the generator that produces it
 fabric/              notebook to land the CSVs as Lakehouse tables
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
 validation/          question bank, ground truth script, scorecard
@@ -230,7 +368,8 @@ Preview features move. Re-check before you present.
 | Fabric data agent | GA |
 | Fabric Core MCP Server, remote | Preview |
 | Fabric MCP Server, local | Preview |
-| Power BI Modeling MCP Server | Public preview |
+| Power BI MCP Server, local (model authoring) | Preview |
+| Power BI MCP Server, remote (chat with data) | Preview |
 | Copilot in Power BI, standalone | Preview |
 | Prep data for AI | Preview |
 | Approved for Copilot | Preview |

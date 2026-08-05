@@ -2,7 +2,7 @@
 
 **Agent:** `model-readiness-auditor`
 **Time:** 15 minutes
-**AI on show:** none, deliberately
+**AI on show:** none for the audit itself, deliberately; Copilot in Desktop only to draft the fixes
 
 This is a gate, not a phase. It sits between [phase 3](03-model.md) and
 [phase 4](04-prep-for-ai.md), and it takes fifteen minutes.
@@ -116,6 +116,48 @@ Two checks it cannot automate, and you should still do by hand:
 
 ---
 
+## Fix it with Copilot in Power BI Desktop
+
+The audit tells you what is wrong. Copilot in Power BI Desktop is a fast way to draft the
+fix. Treat everything it returns as a **draft you review**, not an edit you accept
+blindly — you are the one who knows what the business calls these things.
+
+Enable Copilot in Desktop, then use these prompts against the `ContosoCoffee` model.
+
+**Rename things so a human, and an LLM, can tell them apart.**
+
+```text
+Recommend better names for tables, columns, and DAX measures.
+```
+
+This is the single highest-value prompt in the phase. Ambiguous names — `date2`, `amt`,
+`Sales 2` — are the most common reason Copilot picks the wrong column, and no amount of
+instruction text later on rescues a model whose names do not mean anything.
+
+Rename before you build anything on top of the model. A rename applied after phase 5
+means revisiting report visuals, verified answers, and any DAX that referenced the old
+name, so do this here rather than later.
+
+**Ask for a general critique.**
+
+```text
+Suggest improvements to this semantic model.
+```
+
+Deliberately open-ended. Use it as a second opinion on the checklist, then keep only the
+findings you can map back to a Learn area in the table above.
+
+**Fill in the descriptions — already done, in phase 3.**
+
+Measure descriptions are the thinnest part of most models, and they are the thing Copilot
+actually reads at query time.
+[Phase 3 covers this](03-model.md#descriptions-ask-copilot-in-the-fabric-model-view) with
+the Copilot pane in Fabric model view, because it belongs with the measures rather than
+with the audit. If you skipped it, go back and do it now — an audit of a model with no
+measure descriptions has one finding, and it is that one.
+
+---
+
 ## Where the fix belongs
 
 The audit tends to produce a pile of small fixes. Put them in the right layer, because
@@ -153,6 +195,7 @@ what actually broke.
 Docs:
 - https://learn.microsoft.com/power-bi/create-reports/copilot-evaluate-data
 - https://learn.microsoft.com/power-bi/create-reports/copilot-prepare-data-ai
+- https://learn.microsoft.com/power-bi/create-reports/copilot-introduction
 - https://learn.microsoft.com/fabric/data-science/semantic-link-overview
 - https://learn.microsoft.com/power-bi/developer/projects/projects-overview
 - https://github.com/microsoft/semantic-link-labs

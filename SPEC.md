@@ -58,8 +58,8 @@ The data is generated deterministically (fixed seed) so that the ground truth nu
 | 2 | Load | **GitHub Copilot** writes the ingestion notebook | VS Code / Fabric notebook |
 | 3 | Model | **GitHub Copilot** writes DAX measures and TMDL metadata; **DAX Copilot** explains and refines | VS Code, Power BI Desktop |
 | 3b | Readiness audit | None, deliberately. The model is scored against the Microsoft Learn optimization checklist before the AI is scored | Power BI Desktop, optional Fabric notebook |
-| 4 | Prep for AI | **Prep data for AI** (preview): AI instructions, AI data schema, verified answers; **Approved for Copilot** (preview) | Power BI Desktop / service |
-| 5 | Report | **Power BI Copilot** builds report pages from a prompt | Power BI Desktop / service |
+| 4 | Prep for AI | **Prep data for AI** (preview): AI instructions and AI data schema; **Approved for Copilot** (preview) | Power BI Desktop / service |
+| 5 | Report | **Power BI Copilot** builds report pages from a prompt, then verified answers are set on the finished visuals | Power BI Desktop / service |
 | 6 | Insights | **Copilot pane** summarises; **standalone Copilot** answers cross-item questions | Power BI service |
 | 7 | Agents | **Fabric data agent** over the model + lakehouse; **Fabric IQ ontology** as the shared business vocabulary | Fabric portal |
 | 8 | Validate | The accuracy loop: 15 questions, scored against ground truth, fix and re-run | Anywhere |
@@ -115,9 +115,10 @@ is [Semantic Link Labs](https://github.com/microsoft/semantic-link-labs).
 ## 8. Repository contract
 
 ```
-.github/agents/      11 specialist agents: an orchestrator, then one or more per phase from 1 onward
+.github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
 .github/prompts/     copy-paste prompts, a single README with one section per phase
 data/                synthetic CSVs plus the generator that produced them
+diagram/             the architecture diagram plus the generator and icon resolver that produce it
 fabric/              notebook to land the CSVs as Lakehouse tables
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
 validation/          question bank, ground truth script, scorecard
@@ -125,6 +126,13 @@ docs/                one short guide per phase
 README.md            the how-to. Start here.
 SPEC.md              this file.
 ```
+
+The architecture diagram is **generated, never hand-drawn**, so it cannot drift from the
+phases it describes. Its icons come from the official Microsoft Azure and Fabric icon
+sets and are embedded as base64, so the committed `.drawio`, `.svg` and `.png` open
+offline with nothing installed. Only regenerating needs the icon sets. Processes such as
+gate 3b and the accuracy loop are drawn without product icons, deliberately: giving a
+human step a product glyph misrepresents the architecture.
 
 ### Rules
 
@@ -155,6 +163,9 @@ The demo is successful when all of the following are true.
 7. Phase 3b produces a written list of predicted failures before pass A runs, and at
    least one of those predictions is confirmed by pass A. The audit has to earn its
    place by being right about something.
+8. `python diagram/build_architecture.py` regenerates the architecture diagram, every
+   icon resolves against the official sets, and the result matches the phase table. A
+   diagram that disagrees with `README.md` is a defect.
 
 ## 10. The accuracy loop
 

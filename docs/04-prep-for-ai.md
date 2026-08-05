@@ -12,9 +12,21 @@ go back to [phase 3](03-model.md). If you have not audited the model, go back to
 [phase 3b](03b-readiness-audit.md). Preparing an unaudited model for AI just moves the
 problem somewhere harder to find.
 
+**Get a first draft of the AI instructions.**
+
+```text
+Review my model and generate a text for Prep data for AI instruction. Use business
+friendly terms. Be explicit and specific and use analogies and descriptive language,
+avoid ambiguity.
+```
+
+Treat the output as a draft rather than pasting it straight in. Copilot describes what
+the model *is*; the AI instructions need to say what the business *means*, including the
+things that are nowhere in the metadata.
+
 ---
 
-## Three features
+## Three features, in two stages
 
 | Feature | What it does | Saved to |
 | --- | --- | --- |
@@ -24,6 +36,9 @@ problem somewhere harder to find.
 
 All three save to the **semantic model**, not to the report. That is why they benefit
 every report built on the model, and every agent that uses it.
+
+Configure AI instructions and the AI data schema in this phase. Verified answers need
+report visuals, so set those at the end of [phase 5](05-report.md#set-verified-answers).
 
 It is also why they are governable. Anything stored on the semantic model comes with you
 into [PBIP and TMDL](https://learn.microsoft.com/power-bi/developer/projects/projects-overview),
@@ -91,32 +106,7 @@ Two things to check once you have made the selection, both from the
 
 ---
 
-## 3. Verified answers
-
-Select a visual, `...`, then `Set verified answer` in Desktop or
-`Set up a verified answer` in the service. Add trigger phrases.
-
-In the service you also need to be in a Copilot enabled workspace, have authoring
-permission on the semantic model, be on a report page, and be in edit mode.
-
-Set three:
-
-| Visual | Trigger phrases |
-| --- | --- |
-| Net revenue by region, bar chart | net revenue by region, revenue by region, sales by region |
-| Net revenue by month, line chart | revenue trend, revenue by month, monthly revenue |
-| Top 5 products by net revenue | top products, best selling products, best products |
-
-Keep the list short. Every verified answer is a promise you have to maintain when the
-model changes.
-
-Note the ordering problem: verified answers need visuals, and visuals come from phase 5.
-Either build the three visuals by hand now, or come back after phase 5. Coming back is
-fine, and it makes the point that this is a loop, not a line.
-
----
-
-## 4. Test it
+## 3. Test it
 
 - Use the **skill picker** in the Desktop Copilot pane to simulate each surface.
   Standalone is `Answer questions about the data`. Read mode adds
@@ -133,9 +123,9 @@ Q&A must be enabled on the semantic model for any of this to work.
 
 ---
 
-## 5. Approved for Copilot
+## 4. Approved for Copilot
 
-Do this last.
+Do this after you have tested the AI instructions and AI data schema.
 
 Power BI service, find the semantic model, `Settings`, expand `Approved for Copilot`,
 tick the box, `Apply`.

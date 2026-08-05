@@ -49,12 +49,75 @@ fact_sales 64335. Mine do not match. Help me find where rows were dropped.
 
 ---
 
-## Phase 3, model (GitHub Copilot Chat, or Power BI Modeling MCP)
+## Phase 3, model (Power BI MCP server, local — preferred)
+
+Connect first, with the model open in Power BI Desktop:
 
 ```text
-Read semantic-model/measures.dax. For each measure, write a one sentence description
-under 200 characters that says what it measures and when someone should use it. Return
-a markdown table of measure name and description so I can paste them into Power BI.
+Connect to "ContosoCoffee" in Power BI Desktop
+```
+
+```text
+Create these relationships, all many-to-one and single direction:
+fact_sales[date_key] to dim_date[date_key], fact_sales[product_key] to
+dim_product[product_key], fact_sales[store_key] to dim_store[store_key].
+Then mark dim_date as the date table on dim_date[date_key].
+```
+
+```text
+Set summarisation to Don't summarize on year, month_number, day_of_week_number and every
+column ending in _key. Set the data category of dim_store[city] to City and
+dim_store[state] to State or Province. Hide every *_key column and the raw amount
+columns from report view.
+```
+
+```text
+Read semantic-model/measures.dax and add every measure to the model, including its
+description. Then run each measure as a DAX query and show me the result so I can check
+it against validation/ground_truth.py.
+```
+
+```text
+Audit this model against semantic-model/ai-readiness-checklist.md and fix only the
+Critical findings. List every change you made before you make it.
+```
+
+Guardrails: it writes to the live model. Point it at a demo model, use `--readonly` if
+you only want to show the read side, and re-run `python validation/ground_truth.py`
+afterwards.
+
+---
+
+## Phase 3, model (Copilot in Fabric)
+
+DAX query view, Copilot prompt box — take the `Suggest measures` starter, or type it:
+
+```text
+Suggest measures
+```
+
+Model view, Copilot pane:
+
+```text
+Help me add or replace descriptions for each measure. Consider the following rules:
+
+- insert or replace the description that should appear above the measure code and after ///
+- use business friendly terms
+- describe the DAX code in the description in business-friendly terms; do not copy the
+  code into the description
+- use the measure name and the other measures as context
+- the description should not be longer than 500 characters
+```
+
+---
+
+## Phase 3, model (GitHub Copilot Chat)
+
+With the Power BI modeling MCP server connected to the model:
+
+```text
+review current measures and suggest additional measures. do not duplicate and do not add
+useless measures. if all measures are there then tell me such.
 ```
 
 ```text
@@ -143,23 +206,6 @@ This model has no forecast. If a user asks about a future period, say the model 
 historical data only.
 ```
 
-Verified answers to set, one per visual. Use complete questions, not partial phrases,
-because matching is semantic. Full list and configuration tips in
-[`semantic-model/ai-instructions.md`](../../semantic-model/ai-instructions.md).
-
-```text
-Pin: Total Net Sales by Region (bar, store page)
-Trigger questions: What is net sales by region? / Show me sales broken down by region /
-How is revenue distributed across regions? / Which region sells the most? /
-Net sales by region
-```
-
-```text
-Pin: Total Net Sales by Year-Month (line, executive page)
-Trigger questions: What is the monthly sales trend? / Show me revenue by month /
-How have net sales changed over time? / Monthly revenue trend / Sales over time
-```
-
 ---
 
 ## Phase 5, report (Power BI Copilot pane, author)
@@ -179,6 +225,50 @@ Create a page analysing channel mix over time.
 
 ```text
 Add a narrative visual that summarises revenue performance for 2025 compared to 2024.
+```
+
+After the visuals exist, set verified answers, one per visual:
+
+```text
+Pin: Total Net Sales by Region (bar, store page)
+Trigger questions: What is net sales by region? / Show me sales broken down by region /
+How is revenue distributed across regions? / Which region sells the most? /
+Net sales by region
+```
+
+```text
+Pin: Total Net Sales by Year-Month (line, executive page)
+Trigger questions: What is the monthly sales trend? / Show me revenue by month /
+How have net sales changed over time? / Monthly revenue trend / Sales over time
+```
+
+---
+
+## Phase 5, restyle from a screenshot (GitHub Copilot Chat, agent `report-builder`, skill `report-restyle-from-screenshot`)
+
+Publish the report first, connect the Fabric MCP server, and attach the screenshot of the
+layout you want to the chat turn.
+
+```text
+Here is the layout I want. Restyle my Contoso Coffee report to match it.
+
+Read the screenshot into a design spec first and show me the spec before you change
+anything. Then fetch the report definition from the workspace with the Fabric MCP
+server, apply the layout, the palette, and the theme onto a new page called "Executive
+overview", and leave the original Copilot page alone.
+
+Do not change any field bindings or measures. Layout, visual types, and formatting only.
+```
+
+```text
+The KPI cards are still too tall and the palette is warmer in my screenshot than in the
+page you produced. Adjust those two things only, then show me the before and after side
+by side.
+```
+
+```text
+Confirm you did not change any queryState, then run python validation/ground_truth.py
+and tell me whether any visible total moved.
 ```
 
 ---
