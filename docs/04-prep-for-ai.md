@@ -54,8 +54,8 @@ would need told:
 
 | Instruction | Failure it prevents |
 | --- | --- |
-| Revenue means Net Revenue, not Gross | Every number 3 to 4 percent too high, subtly |
-| Top and best mean highest Net Revenue | Ties broken by the wrong measure |
+| Sales and revenue mean `Total Net Sales`, not `Gross Sales` | Every number 3 to 4 percent too high, subtly |
+| Top and best mean highest `Total Net Sales` | Ties broken by the wrong measure |
 | Regions are exactly West, Central, East | An invented "Northwest region" answer |
 | Data covers 2024 to 2025 only | A confident answer about 2026 |
 | Never sum year or any key column | A total year of 4,050 |
@@ -67,13 +67,13 @@ would need told:
 
 Fewer, better fields. Include what a business user would say out loud. Exclude the rest.
 
-**Include:** all 18 measures, plus `dim_date` date and period columns, `dim_product`
-name, category and subcategory, `dim_store` name, city, state, region and store type,
-and `fact_sales[channel]`.
+**Include:** all 21 measures, plus `Date` date and period columns, `Product` name,
+category and subcategory, `Store` name, city, state, region and store type,
+and `Sales[Channel]`.
 
-**Exclude:** every `*_key` column, the raw `gross_amount`, `discount_amount`,
-`net_amount`, `cost_amount` and `quantity` columns on the fact table, `month_number` and
-`day_of_week_number` (they exist for sorting), and `unit_price` and `unit_cost` on the
+**Exclude:** every key column, the raw `Gross Amount`, `Discount Amount`,
+`Net Amount`, `Cost Amount` and `Quantity` columns on the fact table, `Month Number` and
+`Day of Week Number` (they exist for sorting), and `List Price` and `Cost per Unit` on the
 product dimension (they are list values, and averaging them misleads).
 
 Full list in [`semantic-model/ai-instructions.md`](../semantic-model/ai-instructions.md).

@@ -66,9 +66,11 @@ or its relationships are missing. All three are phase 3 problems.
 
 ## Then clean it up
 
-Generated entity types are named after the tables, so you will get `fact_sales`,
-`dim_store`, `dim_product`. Rename them to `Sale`, `Store`, `Product`. That rename is
-the whole lesson: the ontology is where table names stop leaking into the business.
+Generated entity types are named after the semantic model tables, so you will get
+`Sales`, `Store`, `Product`, `Date`. Because the model was already renamed in phase 3,
+these arrive readable rather than as `fact_sales` and `dim_store`. That is the lesson in
+reverse: naming debt compounds downstream, and paying it once in the model saves paying
+it again here. Singularise `Sales` to `Sale` if you prefer entity-type convention.
 
 Verify the properties and bindings, then verify the relationship types and their
 cardinality.
@@ -78,11 +80,13 @@ before they appear in the ontology.
 
 ## Use it
 
-Add the ontology as a data source to the `Contoso Coffee Analyst` data agent, alongside
-the semantic model. Then ask a relationship-shaped question, something like which
-products drive revenue at the top store, and compare the answer to the pure semantic
-model answer. Note that ontology sources support agent instructions and a data source
-description, but not schema selection, data source instructions, or example queries.
+Add the ontology as a second data source to the `Contoso Coffee Analyst` data agent,
+alongside the semantic model. This is the one case where a second source earns its place,
+because the ontology answers relationship-shaped questions the semantic model cannot.
+Then ask something like which products drive net sales at the top store, and compare the
+answer to the pure semantic model answer. Note that ontology sources support agent
+instructions and a data source description, but not schema selection, data source
+instructions, or example queries.
 
 ## Docs
 
@@ -95,7 +99,7 @@ description, but not schema selection, data source instructions, or example quer
 ## Anti-patterns
 
 - Presenting ontology as generally available.
-- Generating the ontology and leaving the entity types named `fact_sales`.
+- Generating the ontology and leaving the entity types named after lakehouse tables.
 - Positioning ontology as a replacement for the semantic model. They are complementary,
   and the ontology is generated from the model.
 - Blocking the whole demo on a preview tenant setting. This phase is optional.

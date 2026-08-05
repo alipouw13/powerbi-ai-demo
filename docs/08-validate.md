@@ -82,7 +82,7 @@ the fields, measures, and filters it used. Then find the cause in this table.
 
 | Symptom | Usual cause | Fix |
 | --- | --- | --- |
-| A total that is a few percent too high | It used Gross Revenue, not Net | AI instruction defining revenue |
+| A total that is a few percent too high | It used `Gross Sales`, not `Total Net Sales` | AI instruction defining the default sales measure |
 | A year total of 4,050 | `year` is set to Sum | Set `year` to Don't summarize |
 | Confident answer about a region that does not exist | No constraint on region values | AI instruction listing the three regions |
 | A forecast | No statement that the model is historical | AI instruction saying there is no forecast |

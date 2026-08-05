@@ -43,13 +43,13 @@ From the Learn **Model structure** table.
 
 - [ ] **Relationships defined and logical.** All three exist, all three are active,
       all three are many to one. Copilot cannot join what you did not join.
-- [ ] **Fact table clearly delineated.** `fact_sales` holds the measurable data and
+- [ ] **Fact table clearly delineated.** `Sales` holds the measurable data and
       nothing else.
-- [ ] **Dimension tables hold descriptive attributes.** `dim_product`, `dim_store`,
-      `dim_date`.
+- [ ] **Dimension tables hold descriptive attributes.** `Product`, `Store`,
+      `Date`.
 - [ ] **Star schema kept.** No flattening, no second fact table.
 - [ ] **Hierarchies established** on dimensions that people drill into. For this model:
-      `dim_date` as Year, Quarter, Month, Day. Learn calls these out explicitly, and
+      `Date` as Year, Quarter, Month, Day. Learn calls these out explicitly, and
       most demo models skip them.
 - [ ] **Relationship types specified.** Cardinality and active or inactive set
       deliberately, not left at whatever the auto-detect produced.
@@ -66,8 +66,8 @@ From the Learn **Measures and KPIs** table.
 
 - [ ] **Standardised calculation logic.** Every measure is explainable in one sentence.
 - [ ] **Names reflect purpose.** `Average Customer Rating`, not `AvgRating`. In this
-      model, `Net Revenue`, not `SumNetAmt`.
-- [ ] **Predefined measures exist** for what users will actually ask. All 18 are in
+      model, `Total Net Sales`, not `SumNetAmt`.
+- [ ] **Predefined measures exist** for what users will actually ask. All 21 are in
       [`measures.dax`](measures.dax).
 - [ ] **Explicit measures only.** Every numeric column has summarisation set to
       `Don't summarize`, so nobody gets an implicit aggregation they did not ask for.
@@ -89,7 +89,7 @@ From the Learn **Columns and data quality** table.
       whole numbers. A date stored as text breaks every time-based question.
 - [ ] **Values standardised within a column.** `In Store`, not a mix of `In Store`,
       `in store` and `INSTORE`.
-- [ ] **Data categories set.** `dim_store[city]` as City, `dim_store[state]` as State or
+- [ ] **Data categories set.** `Store[City]` as City, `Store[State]` as State or
       Province. This is how Copilot decides it can draw a map.
 - [ ] **Row labels set on dimensions.** Q&A tooling lets you name the column that best
       identifies a single row in a table, so "sales by store" charts store names instead

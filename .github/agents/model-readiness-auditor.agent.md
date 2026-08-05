@@ -50,7 +50,7 @@ Always return findings in this shape, ranked, never as prose.
 
 | Severity | Finding | Object | Predicted failure | Fix |
 | --- | --- | --- | --- | --- |
-| Critical | `year` summarisation set to Sum | `dim_date[year]` | Q05, Q06 return a summed year | Set to `Don't summarize` |
+| Critical | `Year` summarisation set to Sum | `Date[Year]` | Q05, Q06 return a summed year | Set to `Don't summarize` |
 
 Severity levels, matching the analyzer's own scheme:
 

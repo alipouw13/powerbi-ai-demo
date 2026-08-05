@@ -59,9 +59,9 @@ a markdown table of measure name and description so I can paste them into Power 
 
 ```text
 Review my semantic model for AI readiness. Check for: business friendly table and
-column names, all relationships defined, correct data types, data categories on city
-and state, summarisation set to Don't summarize on year, month_number,
-day_of_week_number and every key column, descriptions on every measure, and key columns
+column names, all relationships defined, correct data types, data categories on City
+and State, summarisation set to Don't summarize on Year, Month Number,
+Day of Week Number and every key column, descriptions on every measure, and key columns
 hidden from Q&A. List what is missing as a checklist.
 ```
 
@@ -105,33 +105,52 @@ Paste into the **AI instructions** box. Full text is in
 [`semantic-model/ai-instructions.md`](../../semantic-model/ai-instructions.md).
 
 ```text
-Revenue means Net Revenue, which is after discounts. Only use Gross Revenue when the
-user explicitly says gross or pre-discount.
+Revenue, sales and turnover all mean Total Net Sales, which is after discounts. Only use
+Gross Sales when the user explicitly says gross, list price, or pre-discount.
 
-"Best", "top" and "biggest" mean highest Net Revenue unless the user names another
+"Best", "top" and "biggest" mean highest Total Net Sales unless the user names another
 measure. "Most profitable" means highest Gross Margin in dollars. If the user says
-"most profitable by margin rate" use Gross Margin %.
+"most profitable by margin rate", use Gross Margin %.
 
-A store is a physical Contoso Coffee location. A region groups stores and has exactly
-three values: West, Central, East. If a user names a region that is not one of these,
-say that it does not exist. Do not substitute the nearest match.
+When comparing regions or store types, use Net Sales per Store rather than Total Net
+Sales, because those groups contain different numbers of stores.
+
+A store is a physical Contoso Coffee location. Region groups stores and has exactly
+three values: West, Central, East. Store Type has exactly three values: Flagship,
+Standard, Kiosk. If a user names a value that is not in these lists, say it does not
+exist. Do not substitute the nearest match.
 
 The fiscal year is the calendar year. Data covers 1 January 2024 to 31 December 2025.
 If a user asks about a period outside that range, say the data does not cover it.
 
-Channel has exactly three values: In Store, Mobile Order, Delivery.
+Channel has exactly three values: In Store, Mobile Order, Delivery. In Store means the
+customer ordered at the counter.
 
-Never sum year, month_number, day_of_week_number, or any column ending in _key.
+Total Quantity counts individual items. Order Count counts orders. Neither is a customer
+count, and this model has no customer table.
+
+List Price and Cost per Unit on Product are list values, not transaction values. Never
+average them to answer a question about actual selling price. Use Average Selling Price.
+
+This model has no forecast. If a user asks about a future period, say the model contains
+historical data only.
 ```
 
-Verified answers to set, one per visual:
+Verified answers to set, one per visual. Use complete questions, not partial phrases,
+because matching is semantic. Full list and configuration tips in
+[`semantic-model/ai-instructions.md`](../../semantic-model/ai-instructions.md).
 
 ```text
-Trigger phrases: net revenue by region, revenue by region, sales by region
+Pin: Total Net Sales by Region (bar, store page)
+Trigger questions: What is net sales by region? / Show me sales broken down by region /
+How is revenue distributed across regions? / Which region sells the most? /
+Net sales by region
 ```
 
 ```text
-Trigger phrases: revenue trend, revenue by month, monthly revenue
+Pin: Total Net Sales by Year-Month (line, executive page)
+Trigger questions: What is the monthly sales trend? / Show me revenue by month /
+How have net sales changed over time? / Monthly revenue trend / Sales over time
 ```
 
 ---
@@ -178,33 +197,88 @@ Show me sales for the Northwest region.
 
 ## Phase 7, data agent (Fabric portal)
 
-Paste into **Data agent instructions**:
+The agent has **one** data source, the `ContosoCoffee` semantic model. The curated
+measures are the authoritative definitions, so there is no reason to also expose the
+lakehouse and every reason not to: a second source only gives the orchestrator a way to
+answer the same question from ungoverned raw columns.
 
-```text
-This agent answers questions about Contoso Coffee retail sales.
+> **The single most important thing on this page.** Data agent instructions are **not**
+> passed to the DAX generation step. For a semantic model source, what actually shapes
+> the query is the Prep data for AI configuration from phase 4. Anything you write here
+> about which measure means what is ignored. Keep business definitions in Prep for AI and
+> keep this box for what it really controls: scope, tone, formatting, and refusals.
 
-Routing:
-- Send any question about revenue, margin, units, growth, trend, or ranking to the
-  ContosoCoffee semantic model. The curated measures live there and they are the
-  authoritative definitions.
-- Send row level, exploratory, or "show me the raw records" questions to the
-  LH_ContosoCoffee lakehouse.
+Paste into **Data agent instructions**. The structure follows the recommended format in
+[the configuration guidance](https://learn.microsoft.com/fabric/data-science/data-agent-configurations#data-agent-instructions).
 
-Definitions:
-- Revenue means net revenue, after discounts.
-- The regions are West, Central and East. There are no others.
-- Data covers 1 January 2024 to 31 December 2025.
+```md
+## Objective
 
-If a question cannot be answered from these sources, say so. Do not estimate.
+Help business users understand Contoso Coffee retail sales performance: revenue, margin,
+units, orders, and how those split by time, product, store, region and channel.
+
+Answer only from the curated measures in the semantic model. Never estimate, extrapolate,
+or forecast. If the data cannot answer the question, say so plainly and stop.
+
+## Data sources
+
+One source: the `ContosoCoffee` Power BI semantic model. It is authoritative for every
+question in scope. There is no second source to fall back to, so do not invent one and do
+not answer from general knowledge about coffee retail.
+
+## Key terminology
+
+Expand these abbreviations when a user types them:
+
+- AOV is Average Order Value. ASP is Average Selling Price.
+- GM is Gross Margin. GM% is Gross Margin %.
+- YoY is year over year. MoM is month over month. YTD is year to date. QTD is quarter to
+  date. PY is prior year. PM is prior month.
+- Basket size means units per order.
+
+## Response guidelines
+
+- Lead with the direct answer in one sentence, then the supporting numbers.
+- Always state the time period covered and any filter you applied. An unqualified number
+  is worse than no number.
+- Currency with a dollar sign and thousands separators. Percentages to one decimal place.
+- Return at most 10 rows unless the user asks for more. Responses are capped at 25 rows
+  and 25 columns regardless.
+- Do not show the DAX unless the user asks to see it.
+- If a query returns blank, say the query returned no rows. Do not report it as zero.
+  Blank and zero mean different things here.
+
+## Handling common topics
+
+- Comparing regions or store types: use net sales per store, not total net sales, because
+  those groups contain different numbers of stores. Say that you did this and why.
+- Ranking, "best", "top", "biggest": rank by net sales unless the user names another
+  measure.
+- Profitability: use gross margin in dollars. Use the percentage only if the user says
+  rate, percent, or margin rate.
+- Future periods or forecasts: the model holds history only, 1 January 2024 to
+  31 December 2025. Say the data does not cover it. Never project a trend forward.
+- A name that does not exist, for example a "Northwest" region: say it does not exist and
+  list the valid values. Never substitute the nearest match.
+- Customers: this model has no customer table. Units and orders are not customer counts,
+  so do not present them as such.
 ```
 
-Example queries for the **lakehouse** source only. Semantic model sources do not support
-example query pairs, use verified answers on the model instead.
+**Example queries: skip this.** Example query pairs are not supported for Power BI
+semantic model sources, and neither are data source instructions or data source
+descriptions. Verified answers in Prep for AI are the equivalent, which is another reason
+phase 4 comes before phase 7.
+
+Then write a real **publish description**. It becomes the MCP tool description and the
+Microsoft 365 Copilot description, so it is how other systems decide whether to call your
+agent:
 
 ```text
-Question: how many sales lines were there in 2025
-Query: SELECT COUNT(*) FROM fact_sales f JOIN dim_date d ON f.date_key = d.date_key
-       WHERE d.year = 2025
+Answers questions about Contoso Coffee retail sales performance from the governed
+ContosoCoffee semantic model: net sales, gross margin, discounts, orders, units, and
+average order value, sliced by date, product category, store, region and channel.
+Covers 1 January 2024 to 31 December 2025 for 8 US stores. Historical reporting only,
+no forecasting.
 ```
 
 ---
