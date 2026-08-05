@@ -44,7 +44,7 @@ Copilot cannot join what you did not join.
 
 ## Measures
 
-There are 18, in [`semantic-model/measures.dax`](../semantic-model/measures.dax). Add
+There are 21, in [`semantic-model/measures.dax`](../semantic-model/measures.dax). Add
 them all. Every one has a description in the file, and the description matters: **Copilot
 reads measure descriptions, and uses only the first 200 characters.**
 
