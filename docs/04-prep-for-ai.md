@@ -12,6 +12,18 @@ go back to [phase 3](03-model.md). If you have not audited the model, go back to
 [phase 3b](03b-readiness-audit.md). Preparing an unaudited model for AI just moves the
 problem somewhere harder to find.
 
+**Get a first draft of the AI instructions.**
+
+```text
+Review my model and generate a text for Prep data for AI instruction. Use business
+friendly terms. Be explicit and specific and use analogies and descriptive language,
+avoid ambiguity.
+```
+
+Treat the output as a draft rather than pasting it straight in. Copilot describes what
+the model *is*; the AI instructions need to say what the business *means*, including the
+things that are nowhere in the metadata.
+
 ---
 
 ## Three features

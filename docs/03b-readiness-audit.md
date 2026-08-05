@@ -138,18 +138,6 @@ Rename before you build anything on top of the model. A rename applied after pha
 means revisiting report visuals, verified answers, and any DAX that referenced the old
 name, so do this here rather than later.
 
-**Get a first draft of the AI instructions you will paste in phase 4.**
-
-```text
-Review my model and generate a text for Prep data for AI instruction. Use business
-friendly terms. Be explicit and specific and use analogies and descriptive language,
-avoid ambiguity.
-```
-
-Take the output into [phase 4](04-prep-for-ai.md) rather than pasting it straight in.
-Copilot describes what the model *is*; the AI instructions need to say what the business
-*means*, including the things that are nowhere in the metadata.
-
 **Ask for a general critique.**
 
 ```text
