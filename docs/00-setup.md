@@ -1,7 +1,8 @@
 # Phase 0. Setup
 
-Do this once. It is the only phase with prerequisites, and if you get it wrong the
-Copilot buttons will not appear and you will not know why.
+You are here if you have just cloned the repo and have not created any Fabric items yet.
+Do this once. If you get setup wrong, the Copilot buttons will not appear and you will
+not know why.
 
 Budget 20 minutes, plus however long your admin takes.
 
@@ -65,7 +66,7 @@ No pip installs. Both Python scripts in this repo use the standard library only.
 
 Add these in VS Code. Each one takes about a minute.
 
-### Fabric Core MCP Server, remote, preview
+### Fabric Core MCP Server (preview, remote)
 
 Command Palette, `MCP: Add Server`, choose `HTTP`, paste:
 
@@ -97,7 +98,7 @@ List all my Fabric workspaces
 If it fails, remove and re-add the server, and confirm you have at least Viewer on one
 workspace.
 
-### Fabric MCP Server, local
+### Fabric MCP Server (preview, local)
 
 Install the **Fabric MCP Server** extension from the VS Code marketplace
 (`fabric.vscode-fabric-mcp-server`). It registers itself, there is nothing else to
@@ -112,7 +113,7 @@ Recommended. It is how you keep this demo honest, because preview features move 
 menus change. If your VS Code build supports it, add the Microsoft Learn MCP server so
 Copilot can check current documentation rather than answer from memory.
 
-### Power BI MCP server, local, preview — recommended for phase 3
+### Power BI MCP server (preview, local), recommended for phase 3
 
 Install the `analysis-services.powerbi-modeling-mcp` VS Code extension. It lets Copilot
 edit a semantic model in natural language: measures, columns, relationships, data

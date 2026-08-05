@@ -4,8 +4,8 @@ A small, end-to-end demo of what AI actually does across the whole Power BI life
 Microsoft Fabric. One synthetic dataset, nine short phases and one gate, and a scored
 accuracy loop at the end so you can prove the answers were right.
 
-It covers **Power BI Copilot**, **GitHub Copilot**, the **Fabric MCP servers**, a
-**Fabric data agent**, and optionally a **Fabric IQ ontology**.
+It covers **Power BI Copilot**, **GitHub Copilot**, the **Fabric MCP servers** (preview), a
+**Fabric data agent**, and optionally a **Fabric IQ ontology** (preview).
 
 ---
 
@@ -47,21 +47,28 @@ The diagram is generated, not drawn, so it stays true as the demo changes. See
 | # | Phase | Time | What the AI does | Guide |
 | --- | --- | --- | --- | --- |
 | 0 | Setup | 20 min | Nothing yet. Capacity, tenant settings, MCP servers. | [00-setup](docs/00-setup.md) |
-| 1 | Provision | 10 min | **Fabric MCP** creates the workspace and lakehouse from a chat prompt | [01-provision](docs/01-provision.md) |
+| 1 | Provision | 10 min | **Fabric MCP** (preview) creates the workspace and lakehouse from a chat prompt | [01-provision](docs/01-provision.md) |
 | 2 | Load | 10 min | **GitHub Copilot** writes the ingestion notebook | [02-load](docs/02-load.md) |
 | 3 | Model | 25 min | **GitHub Copilot** writes DAX measures and descriptions; **DAX Copilot** explains them | [03-model](docs/03-model.md) |
 | 3b | Readiness audit | 15 min | Nothing. Score the model against the Microsoft Learn checklist before you score the AI. | [03b-readiness-audit](docs/03b-readiness-audit.md) |
 | 4 | Prep for AI | 20 min | **Prep data for AI** (preview): AI instructions and AI data schema; Approved for Copilot (preview) | [04-prep-for-ai](docs/04-prep-for-ai.md) |
 | 5 | Report | 15 min | **Power BI Copilot** builds report pages from a prompt, then verified answers are set on the finished visuals | [05-report](docs/05-report.md) |
-| 6 | Insights | 15 min | **Copilot pane** and **standalone Copilot** answer business questions | [06-insights](docs/06-insights.md) |
-| 7 | Agents | 25 min | **Fabric data agent** over the semantic model; **Fabric IQ ontology**, optional | [07-agents](docs/07-agents.md) |
+| 6 | Insights | 15 min | **Copilot pane** and **standalone Copilot** (preview) answer business questions | [06-insights](docs/06-insights.md) |
+| 7 | Agents | 25 min | **Fabric data agent** over the semantic model; **Fabric IQ ontology** (preview), optional | [07-agents](docs/07-agents.md) |
 | 8 | Validate | 15 min | Nothing. This is the human check on all of the above. | [08-validate](docs/08-validate.md) |
 
 Those times add up to about **170 minutes** the first time, including setup. Phase 7's
 optional ontology step adds another 20.
 
-**Short on time?** Phases 0, 3, 3b, 4, 6, 8 is the smallest run that still makes the
-point, and comes to about 110 minutes.
+**Short on time?** Phases 0, 1, 2, 3, 3b, 4, 6, 8 is the smallest run that still makes the
+point, and comes to about 130 minutes. Phase 6 needs a report to open the Copilot pane
+against, so instead of the full phase 5 use `Auto-create report` on the `ContosoCoffee`
+model, which is one click.
+
+To go shorter still, drop phases 1 and 2 and skip the lakehouse entirely: connect Power BI
+Desktop straight to the four CSVs in [`data/`](data/) with `Get data`, `Text/CSV`, and
+start at phase 3. That gets you to about 110 minutes, at the cost of the Fabric MCP and
+notebook parts of the story.
 
 ---
 
@@ -79,7 +86,8 @@ You also need:
 
 - A Fabric administrator to turn on the Copilot tenant settings, listed in
   [phase 0](docs/00-setup.md)
-- Power BI Desktop, current release
+- Power BI Desktop, current release. It runs on Windows only, so phases 3, 3b, 4 and 5
+  need a Windows machine
 - VS Code with the GitHub Copilot Chat extension
 - Python 3.10 or later, standard library only, no pip installs
 
@@ -98,11 +106,20 @@ python data/generate_data.py
 python validation/ground_truth.py
 ```
 
+Both scripts print to the console and write nothing except the CSVs in `data/`. If
+`git status` is clean after the first one, the data reproduced exactly.
+
 Then open [`docs/00-setup.md`](docs/00-setup.md) and work down.
 
 Copy the MCP config sample if you want the Fabric Core MCP server in VS Code:
 
+```powershell
+# Windows PowerShell
+Copy-Item .vscode\mcp.json.example .vscode\mcp.json
+```
+
 ```bash
+# macOS or Linux
 cp .vscode/mcp.json.example .vscode/mcp.json
 ```
 
@@ -130,8 +147,8 @@ that script, never from prose written by hand.
 
 | Pass | Surface | After |
 | --- | --- | --- |
-| A | Copilot pane, before Prep data for AI | phase 3b |
-| B | Copilot pane, after Prep data for AI | phase 4 |
+| A | Copilot pane, before Prep data for AI (preview) | phase 3b |
+| B | Copilot pane, after Prep data for AI (preview) | phase 4 |
 | C | Standalone Copilot (preview) | phase 6 |
 | D | Fabric data agent | phase 7 |
 | E | Data agent plus ontology (preview, optional) | phase 7 |
@@ -364,7 +381,7 @@ Preview features move. Re-check before you present.
 | --- | --- |
 | GitHub Copilot in VS Code | GA |
 | Copilot in Power BI, report pane | GA |
-| DAX query view with Copilot | GA |
+| DAX query view with Copilot | GA, enabled from Preview features in Power BI Desktop |
 | Fabric data agent | GA |
 | Fabric Core MCP Server, remote | Preview |
 | Fabric MCP Server, local | Preview |

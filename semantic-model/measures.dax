@@ -41,8 +41,8 @@ SUM ( 'Sales'[Cost Amount] )
 Total Quantity =
 SUM ( 'Sales'[Quantity] )
 
-// Description: Counts the number of orders in the filtered data set, where each row in
-// Sales represents a single order.
+// Description: Counts sales order lines in the filtered data set. Each row in Sales is
+// one line, so this is a line count rather than a distinct customer count.
 Order Count =
 COUNTROWS ( 'Sales' )
 
@@ -66,22 +66,22 @@ Discount Rate % =
 DIVIDE ( [Total Discount], [Gross Sales] )
 
 // ---------------------------------------------------------------------------
-// Per order and per unit
+// Per sales order line and per unit
 // ---------------------------------------------------------------------------
 
-// Description: Calculates the average net sales value per order (Total Net Sales divided
-// by Order Count) for the current filters.
+// Description: Calculates the average net sales value per sales order line (Total Net
+// Sales divided by Order Count) for the current filters.
 Average Order Value =
 DIVIDE ( [Total Net Sales], [Order Count] )
 
-// Description: Calculates the average number of units sold per order for the current
-// filter context.
+// Description: Calculates the average number of units sold per sales order line for the
+// current filter context.
 Units per Order =
 DIVIDE ( [Total Quantity], [Order Count] )
 
 // Description: Calculates the average net revenue per unit sold, dividing Total Net Sales
 // by Total Quantity for the current filters. Differs from Average Order Value, which is
-// measured per order rather than per unit.
+// measured per sales order line rather than per unit.
 Average Selling Price =
 DIVIDE ( [Total Net Sales], [Total Quantity] )
 

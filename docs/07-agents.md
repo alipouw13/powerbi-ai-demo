@@ -1,7 +1,7 @@
 # Phase 7. Agents
 
 **Agents:** `data-agent-builder`, then optionally `ontology-architect`
-**Time:** 25 minutes, plus 20 for the optional ontology
+**Time:** 25 minutes, plus 20 minutes if you choose the optional ontology path
 **AI on show:** Fabric data agent (GA), Fabric IQ ontology (preview)
 
 Phases 5 and 6 put AI inside Power BI. This phase takes the same governed model and
@@ -11,8 +11,8 @@ serves it to anything that can hold a conversation.
 
 ## Part A. Fabric data agent
 
-A Fabric data agent is a conversational analyst scoped to data you choose. It is
-**generally available**.
+A [Fabric data agent](https://learn.microsoft.com/fabric/data-science/concept-data-agent)
+is a conversational analyst scoped to data you choose. It is generally available.
 
 ### Prerequisites
 
@@ -22,9 +22,10 @@ A Fabric data agent is a conversational analyst scoped to data you choose. It is
   - The cross-geo processing and cross-geo storing settings, if your capacity is outside
     the EU data boundary and the US
 - Read access to every source you add
-- To use the agent from Copilot in Power BI, the standalone Copilot tenant setting on
-- Phase 4 finished. Prep data for AI is not optional here, it is the thing that makes the
-  agent accurate. See "why the instruction box is not where the work happens" below.
+- To use the agent from standalone Copilot in Power BI (preview), the standalone Copilot
+  tenant setting is enabled
+- Phase 4 finished. Prep data for AI (preview) is not optional here, it is the thing that
+  makes the agent accurate. See "why the instruction box is not where the work happens" below.
 
 ### One source, on purpose
 
@@ -55,7 +56,7 @@ better routing, and lower latency.
    below first so you understand what this box does and does not do.
 6. `Example queries`. **Not available.** Semantic model sources do not support example
    query pairs, data source instructions, or data source descriptions. Verified answers in
-   Prep for AI are the equivalent, which is another reason phase 4 comes first.
+   Prep data for AI (preview) are the equivalent, which is another reason phase 4 comes first.
 7. Test in the chat canvas. Expand the generated DAX on each answer and check it before
    you believe the number.
 8. `Publish`. Write a real description. It becomes the MCP tool description and the
@@ -68,14 +69,14 @@ This is the single most useful thing to say out loud in this phase.
 
 **Agent-level instructions are not passed to the DAX generation step.** For a semantic
 model source, the DAX generation tool reads only the model metadata and the Prep data for
-AI configuration. Anything you write in the agent instruction box about which measure
+AI (preview) configuration. Anything you write in the agent instruction box about which measure
 means what is ignored when the query is built.
 
 So the two boxes have different jobs:
 
 | Put it here | What belongs there |
 | --- | --- |
-| Prep data for AI, on the model | Business definitions, terminology, which measure to use, closed value lists, refusal rules. Everything that changes the DAX. |
+| Prep data for AI (preview), on the model | Business definitions, terminology, which measure to use, closed value lists, refusal rules. Everything that changes the DAX. |
 | Data agent instructions | Objective, scope, tone, response formatting, abbreviations, and how to handle out-of-scope questions. Everything that shapes the reply after the DAX has run. |
 
 Repeating your business definitions in the agent box feels productive and does nothing.
@@ -98,40 +99,46 @@ single semantic model source, that is always NL2DAX over the XMLA endpoint:
 It validates the query, executes it **read only** under the calling user's permissions,
 and formats the result.
 
-Beyond Prep for AI, the DAX generation tool also reads **report visual metadata**: visual
+Beyond Prep data for AI (preview), the DAX generation tool also reads **report visual metadata**: visual
 titles, the columns and measures each visual uses, and the filters applied. The report
 built in phase 5 is therefore part of the grounding, which is why its visuals have
 descriptive titles rather than the Copilot defaults.
 
 ### Consuming it
 
-In-product chat is GA. These paths are preview:
+In-product chat is GA. Consuming a Fabric data agent from outside Fabric is preview.
+Every path in the table below uses a preview experience, so check it against Microsoft
+Learn before you demo it:
 
 | Path | How |
 | --- | --- |
-| Copilot in Power BI | Copilot pane, `Add items for better results`, `Data agents` |
-| MCP endpoint | `https://api.fabric.microsoft.com/v1/mcp/workspaces/{workspaceId}/dataagents/{dataAgentId}/agent`, scope `https://api.fabric.microsoft.com/.default` |
-| Microsoft Foundry | `Add`, `Knowledge`, `Microsoft Fabric`, then `FabricTool` in `azure-ai-projects` |
-| Copilot Studio | `Agents`, `Add`, `Microsoft Fabric`, validated for the Teams channel |
-| Microsoft 365 Copilot | `Publish to Agent Store`, then `@` mention it |
+| Standalone Copilot in Power BI (preview) | Copilot pane, `Add items for better results`, `Data agents` |
+| MCP endpoint (preview) | `https://api.fabric.microsoft.com/v1/mcp/workspaces/{workspaceId}/dataagents/{dataAgentId}/agent`, scope `https://api.fabric.microsoft.com/.default` |
+| Microsoft Foundry (preview) | `Add`, `Knowledge`, `Microsoft Fabric`, then `FabricTool` in `azure-ai-projects` |
+| Copilot Studio (preview) | `Agents`, `Add`, `Microsoft Fabric`, validated for the Teams channel |
+| Microsoft 365 Copilot (preview) | `Publish to Agent Store`, then `@` mention it |
 
 Data agent responses are capped at 25 rows and 25 columns. Some responses are not
 returned through the SDK, Microsoft 365 Copilot, Teams, or Foundry. Check the limitations
 section of the concepts page for the current list.
 
-For new code prefer the MCP endpoint. The older Python client path builds on the OpenAI
+For new code, prefer the MCP endpoint. The older Python client path builds on the OpenAI
 Assistants API, which has an announced shutdown date of 26 August 2026.
 
 ### Verify
 
 Ask the same 15 questions. Record them as pass D. Two AI surfaces over one governed model
 is a far more interesting comparison than either alone, and because both read the same
-Prep for AI configuration, a disagreement between them is a real finding rather than
+Prep data for AI (preview) configuration, a disagreement between them is a real finding rather than
 noise.
 
 For each answer, expand the generated DAX. If a number is wrong, the fix is almost always
 in one of four places, in this order: the model itself, the AI data schema, the verified
 answers, then the AI instructions. It is very rarely the agent instruction box.
+
+Stop here for the standard demo. You have built the GA data agent and recorded pass D.
+Continue to Part B only if Fabric IQ ontology (preview) is enabled and you want the
+optional pass E comparison.
 
 Docs:
 - https://learn.microsoft.com/fabric/data-science/concept-data-agent
@@ -143,15 +150,17 @@ Docs:
 
 ---
 
-## Part B. Fabric IQ ontology, optional, preview
+## Part B. Fabric IQ ontology, optional (preview)
 
-Skip this if the preview is not enabled on your tenant. The demo is complete without it.
+Skip this if Fabric IQ ontology (preview) is not enabled on your tenant. The demo is
+complete without it.
 
 ### What to say first
 
-Fabric IQ is the business context layer, alongside Work IQ, Foundry IQ, and Web IQ in
-Microsoft IQ. It has three layers: unified data in OneLake, business intelligence in
-Power BI semantic models, and operational intelligence in the ontology item.
+[Fabric IQ](https://learn.microsoft.com/fabric/iq/overview) (preview) is the business
+context layer, alongside Work IQ, Foundry IQ, and Web IQ in Microsoft IQ. It has three
+layers: unified data in OneLake, business intelligence in Power BI semantic models, and
+operational intelligence in the ontology item.
 
 The point for this demo: a semantic model answers "what is revenue by region". An
 ontology answers "what is a Store, what is a Product, and how do they connect", once,
@@ -231,32 +240,16 @@ columns, so nothing lined up.
 
 The portal can fix names, but keys, bindings and contextualizations are faster to repair
 through `getDefinition` and `updateDefinition`. Hand the job to the
-[`ontology-architect`](../.github/agents/ontology-architect.agent.md) agent, which carries
-the traps. A prompt that works:
+[`ontology-architect`](../.github/agents/ontology-architect.agent.md) agent and keep the
+workflow short:
 
-```text
-Audit the ContosoCoffee ontology in my Fabric workspace and repair it.
-
-1. Fetch the item definition and decode every part. If getDefinition returns 403
-   ItemHasProtectedLabel, stop and tell me. Do not write blind, because
-   updateDefinition replaces parts wholesale and would destroy the item.
-2. Save the decoded definition as a rollback backup and tell me the part count.
-3. Read the real column names from the lakehouse Delta logs in OneLake. Do not
-   trust the semantic model for physical column names.
-4. Report every defect: bindings pointing at columns that do not exist, entities
-   with no entityIdParts, entities with no displayNamePropertyId, relationship
-   types with no contextualization, and properties that are DAX measures rather
-   than columns.
-5. Propose a fix as a change set and wait for my yes before writing anything.
-   Add keys, set display name properties, repoint every binding at a real column,
-   add the missing fact columns, and contextualize every relationship.
-6. After the write, read the definition back and prove nothing was dropped.
-```
-
-The change set that came out of that run: four bindings repointed, three keys added
-(`Product_Key` and `Store_Key` as `BigInt`, `Date_Key` as `String`), `entityIdParts` and
-`displayNamePropertyId` set on all four entities, five real `Sales` fact columns added and
-bound, and three contextualizations added. The definition went from 13 parts to 16.
+1. Fetch and decode the definition. If `getDefinition` returns `403 ItemHasProtectedLabel`,
+   stop rather than writing blind.
+2. Save a rollback backup and report the part count.
+3. Read the real physical column names from OneLake or the lakehouse SQL endpoint, not from
+   the semantic model display names.
+4. Report the defects, propose a change set, and get approval before writing.
+5. After `updateDefinition`, read the definition back and prove no parts were dropped.
 
 Two limits are worth knowing before you start:
 
@@ -264,8 +257,8 @@ Two limits are worth knowing before you start:
   dimension whose only unique column is a date needs a new `String` property bound to that
   same column.
 - **There is no refresh API.** `POST /jobs/instances?jobType=Refresh` returns
-  `InvalidJobType` for `GraphModel` in preview, so refresh the graph model from the portal
-  once the repair lands. Until you do, instances will not appear and the repair will look
+  `InvalidJobType` for `GraphModel` in Fabric IQ ontology (preview), so refresh the graph
+  model from the portal once the repair lands. Until you do, instances will not appear and the repair will look
   like it failed.
 
 ### Entity descriptions
@@ -280,10 +273,15 @@ entity's `Documents` part so it is visible in Fabric:
 
 | Entity | Description |
 | --- | --- |
-| `Sales` | Sales fact. One row per sales order line, 64,335 rows across 2024 and 2025. `Net_Amount` is revenue after discount, `Gross_Amount` is before discount, `Cost_Amount` is cost of goods sold. Gross margin is `Net_Amount` minus `Cost_Amount`. There is no customer dimension and no returns. |
-| `Product` | Product catalog. 12 SKUs across the coffee, food and merchandise categories. `List_Price` is the retail price and `Cost_per_Unit` is the unit cost. `Category` and `Subcategory` form the product hierarchy. |
-| `Store` | Retail location. 8 stores. `Region`, `State` and `City` form the geography hierarchy, `Store_Type` separates formats, and `Opened_Date` is the launch date. |
-| `Date` | Calendar dimension. One row per day for 731 days covering 2024 and 2025. Use it for every time-based grouping and filter. `Date_Key` is the entity key and joins to `Sales`. |
+| `Sales` | Sales fact. One row per sales order line, 64,335 rows across 2024 and 2025. `net_amount` is revenue after discount, `gross_amount` is before discount, `cost_amount` is cost of goods sold. Gross margin is `net_amount` minus `cost_amount`. There is no customer dimension and no returns. |
+| `Product` | Product catalog. 12 SKUs across the beverage, food and retail categories. `unit_price` is the retail price and `unit_cost` is the unit cost. `category` and `subcategory` form the product hierarchy. |
+| `Store` | Retail location. 8 stores. `region`, `state` and `city` form the geography hierarchy, `store_type` separates formats, and `opened_date` is the launch date. |
+| `Date` | Calendar dimension. One row per day for 731 days covering 2024 and 2025. Use it for every time-based grouping and filter. `date_key` is the entity key and joins to `Sales`. |
+
+Column names above are the physical lakehouse column names, in snake_case. Ontology
+bindings resolve against the lakehouse tables, not against the semantic model display
+names such as `Net Amount`. Using the display name here is exactly the mistake that
+produced an ontology with no instances.
 
 Keep this table in step with `semantic-model/ai-instructions.md`. The two describe the same
 business, and an agent reading both should not find a contradiction.
@@ -298,26 +296,12 @@ duplicating the first. The lakehouse still stays out. Ontology sources support a
 instructions and a data source description, but not schema selection, data source
 instructions, or example queries.
 
-### How this phase was built
+### Verify optional pass E
 
-Worth showing, because the repair is a better AI story than the generate step.
-
-| Layer | What was used | For what |
-| --- | --- | --- |
-| MCP server | **Fabric MCP** (`list_items`, `get_item_definition`) | Item discovery and the definition read that raw REST could not do. It holds the right tenant credential, which is why it kept working when the CLI did not. |
-| MCP server | **Microsoft Learn MCP** | Pulling the live ontology JSON schemas, which is how the missing description field was proven rather than guessed. |
-| REST API | `GET/POST .../items/{id}/getDefinition` and `/updateDefinition` | Read and write the 16-part definition tree. |
-| REST API | `PATCH /v1/workspaces/{ws}/items/{id}` | The item description, capped at 256 characters. |
-| REST API | OneLake DFS `.../Tables/{t}/_delta_log` | The real physical column names. The lakehouse SQL endpoint is the documented route and is worth trying first. |
-| Copilot | **GitHub Copilot** in agent mode | Decoded the base64 parts, diffed the bindings against the Delta schemas, wrote the mutation script, and rendered the change set for approval. |
-| Repo agent | [`ontology-architect`](../.github/agents/ontology-architect.agent.md) | Owns this phase and carries the traps. |
-| Repo agent | [`semantic-model-author`](../.github/agents/semantic-model-author.agent.md) | Upstream. The naming work in phase 3 is what made the entity names clean. |
-| Repo agent | [`data-loader`](../.github/agents/data-loader.agent.md) | Upstream. It defined the physical snake_case columns the bindings had to match. |
-
-One non-obvious failure is worth repeating. Every REST call returned `404 EntityNotFound`,
-which reads like an unsupported API. The real cause was that `az` was signed in to a
-different tenant than the workspace. Check `az account show` before you conclude an
-endpoint does not exist.
+Ask the same 15 questions again with the ontology source added, then record pass E in the
+scorecard. If the answer is the same as pass D, the ontology did not add value for that
+question. If it differs, expand the query details and decide whether the graph improved
+the answer or introduced another source of ambiguity.
 
 Docs:
 - https://learn.microsoft.com/fabric/iq/overview

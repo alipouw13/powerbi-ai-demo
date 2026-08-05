@@ -42,9 +42,9 @@ Score each surface separately. The comparison is the story.
 | --- | --- | --- |
 | A | Copilot pane, before Prep data for AI | after phase 3 |
 | B | Copilot pane, after Prep data for AI | after phase 4 |
-| C | Standalone Copilot | after phase 6 |
+| C | Standalone Copilot (preview) | after phase 6 |
 | D | Fabric data agent | after phase 7 |
-| E | Data agent with ontology | optional |
+| E | Data agent with ontology (preview) | optional |
 
 If someone skipped pass A, they threw away the point of the demo. Say so.
 
@@ -74,7 +74,7 @@ then to an owner:
 | Picked an obscure column | AI data schema too wide | `copilot-readiness` |
 | Right measure, wrong period | `Date` not marked as a date table | `semantic-model-author` |
 | Invented a region | Missing instruction to say when data does not exist | `copilot-readiness` |
-| Data agent chose the lakehouse for a margin question | Agent instructions do not route by topic | `data-agent-builder` |
+| Data agent answered from the lakehouse, or the lakehouse was added as a source at all | The single-source rule was broken: the agent gets the semantic model and nothing else | `data-agent-builder` |
 
 ## Record it
 

@@ -6,6 +6,9 @@
 
 Copilot writes the first draft. You are the editor.
 
+**Start here after phase 4**, with the `ContosoCoffee` model published, prepped for AI,
+and pass B recorded in [`validation/scorecard.md`](../validation/scorecard.md).
+
 ---
 
 ## What Copilot can do for an author
@@ -53,7 +56,7 @@ as a report tab; the result is still a first draft that you must validate and ed
 
 ---
 
-## Three prompts, in this order
+## Four prompts, in this order
 
 The value is in the contrast between them.
 
@@ -110,7 +113,7 @@ Worth pointing at during a demo:
 | On the page | Why it is there |
 | --- | --- |
 | Cards read `Total Net Sales`, `Gross Margin`, `Gross Margin %`, `Order Count`, `Net Sales YoY %` | Measure names, straight from the model. Nothing is renamed in the report, so what the audience reads is what Copilot and the data agent read. |
-| `$412.92K` and `68.7%` | The same numbers `python validation/ground_truth.py` returns. Check them live if you want the room to trust the rest. |
+| `$412,918.50` and `68.65%` | The same numbers `python validation/ground_truth.py` returns. Check them live if you want the room to trust the rest. |
 | The YoY card is titled `NET SALES YOY % (2025 VS 2024)`, not just `NET SALES YOY %` | The title names the comparison because the card is filtered to one year. It has to be. See below. |
 | Gross Margin % is its own chart, not a second series on the sales chart | A rate and an amount on one axis is the most common way a generated page misleads. |
 | Category and Channel as separate bar charts | These are the two splits the audience always asks for next, so answering them before the question is asked keeps the demo moving. |
@@ -127,13 +130,13 @@ query, so whatever you pin is what the audience sees.
 
 That last card is the most useful thing on the page, because it was wrong.
 
-When Copilot first generated it, it read **104.9%**. Net sales did not grow 105 percent.
+When Copilot first generated it, it returned an inflated three-digit percentage. Net sales did not grow that much.
 
 `Net Sales YoY %` is `DIVIDE([Total Net Sales] - [Net Sales PY], [Net Sales PY])`, and the
 DAX is correct. The card was wrong because it had no year filter. With the whole model in
 context, `Total Net Sales` covers 2024 and 2025 while `SAMEPERIODLASTYEAR` can only reach
 back to 2024, so the card compared two years of sales against one. Filtered to 2025 the
-same measure returns **4.9%**, which is what it shows above.
+same measure returns **4.90%**, which is what it shows above.
 
 The fix was a visual-level filter pinning the card to 2025, plus the retitle so the
 comparison is stated rather than assumed.
@@ -147,7 +150,7 @@ Two things worth saying out loud when you show this:
    context to mean anything, and a card with no filter does not have one.
 
 If you want to reproduce it live, drop `Net Sales YoY %` on a blank card with no filter and
-watch it read 104.9%.
+watch it return an inflated value.
 
 This is also why phase 4 matters. The AI instructions tell Copilot and the data agent that
 `Net Sales YoY %` needs a single year in context, so the same trap does not get reproduced
@@ -176,9 +179,9 @@ Copilot in Power BI gave you a correct page that looks generic. Default visuals,
 in a column, stock theme. The Copilot pane cannot help you here, because it cannot read
 an image.
 
-GitHub Copilot Chat can read an image, and the Fabric MCP server can rewrite the report
-definition. Together they can take a screenshot of the design someone actually wants and
-apply it to the report you just built.
+GitHub Copilot Chat can read an image, and the Fabric MCP server (preview) can rewrite the
+report definition. Together they can take a screenshot of the design someone actually
+wants and apply it to the report you just built.
 
 The repository skill
 [`.github/skills/report-restyle-from-screenshot`](../.github/skills/report-restyle-from-screenshot/SKILL.md)
@@ -189,7 +192,7 @@ with `/report-restyle-from-screenshot`.
 
 - The report published to the workspace. If it only exists in Desktop there is no item
   definition to fetch.
-- A Fabric MCP server connected in VS Code, from [phase 1](01-provision.md).
+- A Fabric MCP server (preview) connected in VS Code, from [phase 1](01-provision.md).
 - The numbers on the page already checked. Restyling first only makes a wrong page
   attractive.
 
@@ -202,8 +205,8 @@ and say:
 Here is the layout I want. Restyle my Contoso Coffee report to match it.
 
 Read the screenshot into a design spec first and show me the spec before you change
-anything. Then fetch the report definition from the workspace with the Fabric MCP
-server, apply the layout, the palette, and the theme onto a new page called "Executive
+anything. Then fetch the report definition from the workspace with the Fabric MCP server
+(preview), apply the layout, the palette, and the theme onto a new page called "Executive
 overview", and leave the original Copilot page alone.
 
 Do not change any field bindings or measures. Layout, visual types, and formatting only.
@@ -260,7 +263,7 @@ line chart, select `...`, then select `Set verified answer` in Desktop or
 In the service you also need to be in a Copilot enabled workspace, have authoring
 permission on the semantic model, be on a report page, and be in edit mode.
 
-Power BI opens `Prep data for AI` with the selected visual and suggests phrases based
+Power BI opens `Prep data for AI` (preview) with the selected visual and suggests phrases based
 on that visual. Review the suggestions before applying them. For this line chart, use
 the three suggestions shown:
 
@@ -272,6 +275,14 @@ the three suggestions shown:
 
 Keep the list short. Every verified answer is a promise you have to maintain when the
 model changes.
+
+---
+
+## Verify this phase
+
+Before you move on, run `python validation/ground_truth.py` and confirm the report shows
+`$412,918.50`, `$283,482.20`, `68.65%`, and `4.90%` for the filtered 2025 YoY card. Publish
+only after those numbers match.
 
 ---
 

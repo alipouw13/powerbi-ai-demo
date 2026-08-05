@@ -46,23 +46,30 @@ runs the demo.
 ## Run a pass
 
 1. Open [`validation/question-bank.md`](../validation/question-bank.md).
-2. Ask all 15, in order, in one surface.
+2. Ask Q01 to Q15, in order, in one surface. These are the only questions that count
+   toward the `/ 15` score.
 3. Grade each answer: **Correct**, **Partly correct**, **Wrong**, **Refused**.
    - Partly correct means the number is right but the framing is wrong, or the right
      ranking with a wrong value.
-   - Refused counts as a failure for a question the model should be able to answer, and
-     as a **pass** for F01 and F03, where refusing is the correct behaviour.
+   - Refused counts as a failure for Q01 to Q15, because the model should be able to
+     answer them.
 4. Record the result in [`validation/scorecard.md`](../validation/scorecard.md).
+5. Ask F01 to F03 and record how they behaved in the scorecard's failure questions table.
+   They do not change the `/ 15` score. For those probes, refusal or clarification can be
+   the correct behaviour.
 
 Five passes are defined:
 
 | Pass | Surface | Run after |
 | --- | --- | --- |
-| A | Copilot pane, before Prep data for AI | phase 3b |
-| B | Copilot pane, after Prep data for AI | phase 4 |
+| A | Copilot pane, before Prep data for AI (preview) | phase 3b |
+| B | Copilot pane, after Prep data for AI (preview) | phase 4 |
 | C | Standalone Copilot (preview) | phase 6 |
 | D | Fabric data agent | phase 7 |
 | E | Data agent plus ontology (preview, optional) | phase 7 |
+
+Score each pass as the count of **Correct** answers across Q01 to Q15. Partly correct,
+Wrong, and Refused all count as misses for the score, then belong in the failure log.
 
 **B minus A is the headline.** It is the only number in this demo that measures the value
 of the modelling work rather than the value of the product.

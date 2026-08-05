@@ -9,21 +9,21 @@ Prompts to Power BI Copilot run in the Copilot pane in Power BI Desktop or the s
 
 ---
 
-## Phase 1, provision (GitHub Copilot Chat, Fabric Core MCP)
+## Phase 1, provision (GitHub Copilot Chat, Fabric Core MCP, preview)
 
 ```text
 List all my Fabric workspaces.
 ```
 
 ```text
-Create a Fabric workspace called "Contoso Coffee AI Demo" and assign it to a capacity
-that supports Copilot. Then create a lakehouse called "LH_ContosoCoffee" inside it.
-When you are done, list the items in the workspace so I can verify.
+Which of my capacities support Copilot in Power BI? Copilot needs a paid F2 or higher,
+or P1 or higher. Trial capacities do not qualify.
 ```
 
 ```text
-Which of my capacities support Copilot in Power BI? Copilot needs a paid F2 or higher,
-or P1 or higher. Trial capacities do not qualify.
+Create a Fabric workspace called "Contoso Coffee AI Demo" and assign it to a capacity
+that supports Copilot. Then create a lakehouse called "LH_ContosoCoffee" inside it.
+When you are done, list the items in the workspace so I can verify.
 ```
 
 ---
@@ -36,8 +36,8 @@ lakehouse and writes each one as a managed delta table with the same name:
 dim_date.csv, dim_product.csv, dim_store.csv, fact_sales.csv.
 
 Requirements:
-- Infer the header, but set explicit types: date_key as date, all *_amount columns as
-  decimal, all *_key columns as integer, quantity as integer.
+- Apply an explicit schema, do not infer. date_key as date, all *_amount columns as
+  decimal(18,2), all *_key columns as integer, quantity as integer.
 - Overwrite if the table exists.
 - After writing, print the row count for each table.
 ```
@@ -49,7 +49,9 @@ fact_sales 64335. Mine do not match. Help me find where rows were dropped.
 
 ---
 
-## Phase 3, model (Power BI MCP server, local — preferred)
+## Phase 3, model
+
+### Power BI MCP server, local (preferred)
 
 Connect first, with the model open in Power BI Desktop:
 
@@ -88,9 +90,9 @@ afterwards.
 
 ---
 
-## Phase 3, model (Copilot in Fabric)
+### Copilot in Fabric
 
-DAX query view, Copilot prompt box — take the `Suggest measures` starter, or type it:
+DAX query view, Copilot prompt box: take the `Suggest measures` starter, or type it:
 
 ```text
 Suggest measures
@@ -111,7 +113,7 @@ Help me add or replace descriptions for each measure. Consider the following rul
 
 ---
 
-## Phase 3, model (GitHub Copilot Chat)
+### GitHub Copilot Chat
 
 With the Power BI modeling MCP server connected to the model:
 
@@ -179,9 +181,9 @@ When comparing regions or store types, use Net Sales per Store rather than Total
 Sales, because those groups contain different numbers of stores.
 
 A store is a physical Contoso Coffee location. Region groups stores and has exactly
-three values: West, Central, East. Store Type has exactly three values: Flagship,
-Standard, Kiosk. If a user names a value that is not in these lists, say it does not
-exist. Do not substitute the nearest match.
+three values: West, Central, East. Store Type has exactly four values: Flagship,
+Mall, Standard, Kiosk. If a user names a value that is not in these lists, say it
+does not exist. Do not substitute the nearest match.
 
 The fiscal year is the calendar year. Data covers 1 January 2024 to 31 December 2025.
 If a user asks about a period outside that range, say the data does not cover it.
@@ -189,8 +191,9 @@ If a user asks about a period outside that range, say the data does not cover it
 Channel has exactly three values: In Store, Mobile Order, Delivery. In Store means the
 customer ordered at the counter.
 
-Total Quantity counts individual items. Order Count counts orders. Neither is a customer
-count, and this model has no customer table.
+Total Quantity counts individual items. Order Count counts sales order lines, because
+each row in Sales is one line. Neither is a customer count, and this model has no
+customer table.
 
 List Price and Cost per Unit on Product are list values, not transaction values. Never
 average them to answer a question about actual selling price. Use Average Selling Price.
@@ -244,7 +247,7 @@ How have net sales changed over time? / Monthly revenue trend / Sales over time
 
 ---
 
-## Phase 5, restyle from a screenshot (GitHub Copilot Chat, agent `report-builder`, skill `report-restyle-from-screenshot`)
+### Restyle from a screenshot (GitHub Copilot Chat, agent `report-builder`, skill `report-restyle-from-screenshot`)
 
 Publish the report first, connect the Fabric MCP server, and attach the screenshot of the
 layout you want to the chat turn.

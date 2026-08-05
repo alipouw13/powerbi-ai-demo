@@ -89,15 +89,16 @@ the grounding, which is why its visuals carry descriptive titles.
 
 ## Consuming it
 
-In product chat is generally available. These consumption paths are preview:
+In-product chat is generally available. Label these preview consumption paths at the
+point of use:
 
 | Path | How |
 | --- | --- |
-| Copilot in Power BI | Copilot pane, `Add items for better results`, `Data agents` |
-| MCP endpoint | `https://api.fabric.microsoft.com/v1/mcp/workspaces/{workspaceId}/dataagents/{dataAgentId}/agent`, scope `https://api.fabric.microsoft.com/.default` |
-| Microsoft Foundry | Add, Knowledge, Microsoft Fabric, then `FabricTool` in `azure-ai-projects` |
-| Copilot Studio | Agents, Add, Microsoft Fabric, validated for the Teams channel |
-| Microsoft 365 Copilot | Publish to Agent Store, then `@` mention it |
+| Copilot in Power BI (preview) | Copilot pane, `Add items for better results`, `Data agents` |
+| MCP endpoint (preview) | `https://api.fabric.microsoft.com/v1/mcp/workspaces/{workspaceId}/dataagents/{dataAgentId}/agent`, scope `https://api.fabric.microsoft.com/.default` |
+| Microsoft Foundry (preview) | Add, Knowledge, Microsoft Fabric, then `FabricTool` in `azure-ai-projects` |
+| Copilot Studio (preview) | Agents, Add, Microsoft Fabric, validated for the Teams channel |
+| Microsoft 365 Copilot (preview) | Publish to Agent Store, then `@` mention it |
 
 Data agent responses are capped at 25 rows and 25 columns. Some responses are not
 returned through the SDK, Microsoft 365 Copilot, Teams, or Foundry. Check the limitations

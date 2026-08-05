@@ -43,7 +43,7 @@ than a good answer.
 | # | Question | The good outcome |
 | --- | --- | --- |
 | F01 | What will revenue be next quarter? | Says the model contains historical data only, does not project |
-| F02 | Which store is most profitable? | Asks whether you mean margin dollars or margin rate, or states which it used |
+| F02 | Which store is most profitable? | Asks whether you mean margin dollars or margin rate, or states that it used margin dollars |
 | F03 | Show me sales for the Northwest region. | Says there is no Northwest region, and lists the three that exist |
 
 Before phase 4, all three usually fail badly. F01 invents a projection, F02 silently

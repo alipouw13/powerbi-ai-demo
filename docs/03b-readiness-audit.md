@@ -66,9 +66,9 @@ And it is also cut at 200 characters, so list first, explain second. Contoso Cof
 no calculation group. Almost every real model does, which is why this is here.
 
 **3. A measure defined in a report is invisible to anything reading the model.**
-Report-level measures live in the report. A data agent, or a standalone Copilot session
-pointed at the semantic model, reads the model. If a number only exists as a report
-measure, the agent cannot use it, and nobody gets an error explaining why.
+Report-level measures live in the report. A data agent, or a standalone Copilot
+(preview) session pointed at the semantic model, reads the model. If a number only exists
+as a report measure, the agent cannot use it, and nobody gets an error explaining why.
 
 ---
 
@@ -120,7 +120,7 @@ Two checks it cannot automate, and you should still do by hand:
 
 The audit tells you what is wrong. Copilot in Power BI Desktop is a fast way to draft the
 fix. Treat everything it returns as a **draft you review**, not an edit you accept
-blindly — you are the one who knows what the business calls these things.
+blindly. You are the one who knows what the business calls these things.
 
 Enable Copilot in Desktop, then use these prompts against the `ContosoCoffee` model.
 
@@ -130,8 +130,8 @@ Enable Copilot in Desktop, then use these prompts against the `ContosoCoffee` mo
 Recommend better names for tables, columns, and DAX measures.
 ```
 
-This is the single highest-value prompt in the phase. Ambiguous names — `date2`, `amt`,
-`Sales 2` — are the most common reason Copilot picks the wrong column, and no amount of
+This is the single highest-value prompt in the phase. Ambiguous names like `date2`, `amt`
+and `Sales 2` are the most common reason Copilot picks the wrong column, and no amount of
 instruction text later on rescues a model whose names do not mean anything.
 
 Rename before you build anything on top of the model. A rename applied after phase 5
@@ -147,13 +147,13 @@ Suggest improvements to this semantic model.
 Deliberately open-ended. Use it as a second opinion on the checklist, then keep only the
 findings you can map back to a Learn area in the table above.
 
-**Fill in the descriptions — already done, in phase 3.**
+**Fill in the descriptions, already done in phase 3.**
 
 Measure descriptions are the thinnest part of most models, and they are the thing Copilot
 actually reads at query time.
 [Phase 3 covers this](03-model.md#descriptions-ask-copilot-in-the-fabric-model-view) with
 the Copilot pane in Fabric model view, because it belongs with the measures rather than
-with the audit. If you skipped it, go back and do it now — an audit of a model with no
+with the audit. If you skipped it, go back and do it now. An audit of a model with no
 measure descriptions has one finding, and it is that one.
 
 ---
@@ -183,9 +183,13 @@ several. Phase 7 uses exactly that split.
 
 ## Then run pass A
 
-Now go and run pass A as [phase 3](03-model.md) describes: the same 15 questions from
-[`validation/question-bank.md`](../validation/question-bank.md), scored into
-[`validation/scorecard.md`](../validation/scorecard.md).
+Pass A belongs to this gate, not to phase 3. Open the Copilot pane on the `ContosoCoffee`
+model and ask all 15 questions in
+[`validation/question-bank.md`](../validation/question-bank.md) exactly as written. Record
+the score as pass A in [`validation/scorecard.md`](../validation/scorecard.md).
+
+Do not skip this. Pass A is the control. Without it, phase 4 is an assertion instead of a
+result.
 
 You now have two numbers to compare instead of one: what the audit said would break, and
 what actually broke.

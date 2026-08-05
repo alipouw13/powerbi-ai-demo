@@ -4,6 +4,9 @@
 **Time:** 10 minutes
 **AI on show:** GitHub Copilot writing the ingestion notebook
 
+Start here after [phase 1](01-provision.md), when the workspace exists and
+`LH_ContosoCoffee` is visible in the Fabric portal.
+
 ---
 
 ## The data
@@ -25,7 +28,8 @@ that now, not in phase 6 when Copilot returns a number nobody can explain.
 ## Path A. Portal upload, fastest
 
 1. Open `LH_ContosoCoffee`.
-2. Ribbon, `Get data`, `Upload files`. Select the four CSVs from `data/`.
+2. On the ribbon, select `Get data`, then `Upload files`. Select the four CSVs from
+   `data/`.
 3. Expand `Files` in the Explorer.
 4. For each file: `...`, `Load to Tables`, `New table`. Accept the defaults.
 
@@ -74,10 +78,15 @@ is that Copilot infers the schema unless you insist.
 
 ```python
 EXPECTED = {"dim_date": 731, "dim_product": 12, "dim_store": 8, "fact_sales": 64335}
+ok = True
 for table, expected in EXPECTED.items():
-    print(table, spark.table(table).count(), expected)
+    actual = spark.table(table).count()
+    ok = ok and actual == expected
+    print(table, actual, expected)
 
-spark.sql("SELECT SUM(net_amount) FROM fact_sales").show()
+net = spark.sql("SELECT SUM(net_amount) AS net FROM fact_sales").collect()[0]["net"]
+print("total net revenue", net, "expected 412918.50")
+print("load verified" if ok and str(net) == "412918.50" else "load FAILED")
 ```
 
 Total net revenue must be `412918.50`.

@@ -11,8 +11,8 @@ Get the expected values with `python validation/ground_truth.py`.
 
 | Pass | Surface | Run after | Date | Score |
 | --- | --- | --- | --- | --- |
-| A | Copilot pane, before Prep data for AI | phase 3b | | / 15 |
-| B | Copilot pane, after Prep data for AI | phase 4 | | / 15 |
+| A | Copilot pane, before Prep data for AI (preview) | phase 3b | | / 15 |
+| B | Copilot pane, after Prep data for AI (preview) | phase 4 | | / 15 |
 | C | Standalone Copilot (preview) | phase 6 | | / 15 |
 | D | Fabric data agent | phase 7 | | / 15 |
 | E | Data agent plus ontology (preview, optional) | phase 7 | | / 15 |
@@ -68,7 +68,7 @@ Grades: Correct, Partly correct, Wrong, Refused.
 | # | Good outcome | A | B | C | D |
 | --- | --- | --- | --- | --- | --- |
 | F01 | Says historical data only, does not project | | | | |
-| F02 | Clarifies margin dollars vs margin rate | | | | |
+| F02 | Clarifies margin dollars vs margin rate, or states that it used margin dollars | | | | |
 | F03 | Says Northwest does not exist | | | | |
 
 ---

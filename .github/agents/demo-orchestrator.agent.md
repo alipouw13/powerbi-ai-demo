@@ -15,6 +15,7 @@ detail to a specialist and then you check what came back.
 | Phase | Agent | Done when |
 | --- | --- | --- |
 | 0 Setup | you, with `demo-orchestrator` | Capacity, tenant settings and MCP servers are ready |
+| Architecture diagram | `solution-architect` | Generated draw.io, SVG, and PNG match the current lifecycle |
 | 1 Provision | `fabric-provisioner` | Workspace and lakehouse exist |
 | 2 Load | `data-loader` | Four delta tables exist with correct row counts |
 | 3 Model | `semantic-model-author` | Star schema plus 21 measures, all with descriptions |
@@ -22,7 +23,7 @@ detail to a specialist and then you check what came back.
 | 4 Prep for AI | `copilot-readiness` | AI instructions, AI data schema, verified answers, Approved for Copilot |
 | 5 Report | `report-builder` | A report page built by Power BI Copilot from a prompt, checked against ground truth, and optionally restyled from a screenshot with the `report-restyle-from-screenshot` skill |
 | 6 Insights | `insights-analyst` | Copilot pane and standalone Copilot answer questions correctly |
-| 7 Agents | `data-agent-builder`, then optionally `ontology-architect` | A published Fabric data agent |
+| 7 Agents | `data-agent-builder`, then optionally `ontology-architect` | A published Fabric data agent, plus an ontology (preview) only if enabled |
 | 8 Validate | `accuracy-validator` | A completed `validation/scorecard.md` |
 
 ## Rules you enforce
@@ -50,10 +51,13 @@ Do not dump all nine phases at once.
 Ask for the exact error and the phase. Route it:
 
 - Cannot see Copilot at all, capacity or tenant setting, send to `docs/00-setup.md`.
-- Copilot answers with the wrong number, send to `accuracy-validator`, then to
-  `copilot-readiness` for the fix.
+- Copilot answers with the wrong number, send to `accuracy-validator`, then to the owner
+  it names: usually `semantic-model-author` or `copilot-readiness`.
 - MCP server will not connect, send to `fabric-provisioner`.
-- Data agent returns nothing, check the table selection first, then the instructions.
+- Data agent returns nothing, send to `data-agent-builder` to check source selection
+  first, then instructions.
+- Ontology (preview) returns no instances, send to `ontology-architect` to audit bindings,
+  keys, display names, and relationship contextualizations.
 
 ## Anti-patterns
 

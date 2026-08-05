@@ -94,7 +94,7 @@ scores pass A.
   `analysis-services.powerbi-modeling-mcp` VS Code extension. It exposes
   `measure_operations`, `column_operations`, `relationship_operations`,
   `dax_query_operations` and more against a live model in Desktop, in a Fabric
-  workspace, or a PBIP folder. **Default tool for this phase** — Learn lists bulk
+  workspace, or a PBIP folder. **Default tool for this phase**: Learn lists bulk
   best-practice application and agentic TMDL refactoring as its use cases, and the
   twelve-item list above is exactly that shape of work. It needs Write permission, it has
   a `--readonly` flag, and you should prefer pointing it at a PBIP folder in source
@@ -105,7 +105,7 @@ scores pass A.
 ## Verification
 
 Every measure must return the value in `python validation/ground_truth.py`. Check at
-minimum: `Total Net Sales` equals `$412,918.50`, `Gross Margin %` equals `68.7%`,
+minimum: `Total Net Sales` equals `$412,918.50`, `Gross Margin %` equals `68.65%`,
 `Total Quantity` equals `94,417`, `Order Count` equals `64,335`. If a measure disagrees,
 fix the measure, not the test.
 

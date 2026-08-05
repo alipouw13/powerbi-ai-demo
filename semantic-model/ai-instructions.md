@@ -32,9 +32,9 @@ When comparing regions or store types, use Net Sales per Store rather than Total
 Sales, because those groups contain different numbers of stores.
 
 A store is a physical Contoso Coffee location. Region groups stores and has exactly
-three values: West, Central, East. Store Type has exactly three values: Flagship,
-Standard, Kiosk. If a user names a value that is not in these lists, say it does not
-exist. Do not substitute the nearest match.
+three values: West, Central, East. Store Type has exactly four values: Flagship,
+Mall, Standard, Kiosk. If a user names a value that is not in these lists, say it
+does not exist. Do not substitute the nearest match.
 
 The fiscal year is the calendar year. Data covers 1 January 2024 to 31 December 2025.
 If a user asks about a period outside that range, say the data does not cover it.
@@ -42,8 +42,9 @@ If a user asks about a period outside that range, say the data does not cover it
 Channel has exactly three values: In Store, Mobile Order, Delivery. In Store means the
 customer ordered at the counter.
 
-Total Quantity counts individual items. Order Count counts orders. Neither is a customer
-count, and this model has no customer table.
+Total Quantity counts individual items. Order Count counts sales order lines, because
+each row in Sales is one line. Neither is a customer count, and this model has no
+customer table.
 
 List Price and Cost per Unit on Product are list values, not transaction values. Never
 average them to answer a question about actual selling price. Use Average Selling Price.
@@ -145,7 +146,7 @@ with the visual selected.
 
 ---
 
-## 4. Approved for Copilot
+## 4. Approved for Copilot (preview)
 
 Once the three features above are configured and tested, mark the model approved.
 
