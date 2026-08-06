@@ -70,6 +70,12 @@ Desktop straight to the four CSVs in [`data/`](data/) with `Get data`, `Text/CSV
 start at phase 3. That gets you to about 110 minutes, at the cost of the Fabric MCP and
 notebook parts of the story.
 
+**Presenting to a business audience rather than building?** Go straight to the
+[business prompt library](.github/prompts/business-prompt-library.md). It is the persona
+prompt sets, the prerequisites that decide answer quality, how to leverage verified answers
+and the visuals already on the page, a six-prompt leadership readout, and the same material
+for the Fabric data agent.
+
 ---
 
 ## Before you start
@@ -361,7 +367,7 @@ resource layout.
 ```
 .github/agents/      12 specialist agents: an orchestrator, an architect, and one or more per phase from 1 onward
 .github/skills/      reusable procedures agents can load, such as restyling a report page from a screenshot
-.github/prompts/     copy-paste prompts, one section per phase from 1 onward
+.github/prompts/     copy-paste prompts, one section per phase from 1 onward, plus the business user prompt library
 data/                synthetic CSVs and the seeded generator that made them
 diagram/             the architecture diagram and the generator that produces it
 fabric/              notebook to land the CSVs as Lakehouse tables

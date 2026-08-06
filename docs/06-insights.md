@@ -11,6 +11,36 @@ model. Behave accordingly.
 checked against ground truth. On the short path, where phase 5 is skipped, use
 `Auto-create report` on the `ContosoCoffee` model to get a report page to work against.
 
+Two different jobs happen in this phase. **Scoring** the model against the question bank,
+which is below. And **using** it the way a business user would, which is the
+[business prompt library](../.github/prompts/business-prompt-library.md): persona prompt
+sets, a six-prompt leadership readout, and how to get the most out of verified answers and
+the visuals already on the page.
+
+---
+
+## What must be true before a business user gets a good answer
+
+The prompt is the last five percent. Almost every bad answer traces back to this table
+rather than to the wording of the question.
+
+| Prerequisite | What the user sees when it is missing | Set in |
+| --- | --- | --- |
+| Paid F2 or higher, or P1 or higher with Fabric on | No Copilot button at all | [phase 0](00-setup.md) |
+| Business-friendly names, relationships, marked date table | Answers that use names nobody recognises, or refuse anything time based | [phase 3](03-model.md) |
+| A description on every measure, meaning first | The wrong measure out of 20 | [phase 3](03-model.md) |
+| AI instructions | Revenue, best and profitable resolve to the wrong thing | [phase 4](04-prep-for-ai.md) |
+| AI data schema | A raw column instead of a curated measure | [phase 4](04-prep-for-ai.md) |
+| Verified answers | A freshly generated query instead of the visual leadership signed off | [phase 4](04-prep-for-ai.md) |
+| `Approved for Copilot` (preview) | A low-quality warning banner before any answer | [phase 4](04-prep-for-ai.md) |
+| Q&A enabled on the model | Nothing in Prep data for AI takes effect | [phase 4](04-prep-for-ai.md) |
+| Descriptive visual titles | Weaker grounding, especially for the phase 7 agent | [phase 5](05-report.md) |
+
+Five minute readiness check: open the Copilot pane, ask `What is our total net revenue?`
+and confirm `$412,918.50`, ask `Show me net revenue by region.` and confirm you get the
+pinned visual back rather than a new table, then ask `Show me sales for the Northwest
+region.` and confirm it refuses instead of substituting West.
+
 ---
 
 ## Two surfaces, and the difference matters
@@ -90,6 +120,94 @@ is your diagnosis, and it is what you hand back to phase 3 or phase 4.
 
 If an answer has no such section, it came from the model's general knowledge rather than
 your semantic model. For a data question, treat that as a red flag.
+
+---
+
+## Ask like a business user, not like a tester
+
+The question bank is deliberately mechanical. Real users are not. A prompt that produces a
+number somebody will act on has five parts, and dropping any one of them is how you get a
+number you cannot defend.
+
+| Part | Fragment | What goes wrong without it |
+| --- | --- | --- |
+| Role or lens | `Act as a retail CFO` | A generic answer with no point of view |
+| Scope | `for the Beverage category` | You get a grand total |
+| Measure | `by gross margin, in dollars` | It picks the wrong one out of 20 |
+| Period | `for 2025` | Time intelligence compares two years against one |
+| Output shape | `as a table, top 5` | Prose you have to re-ask for |
+
+The single highest-value habit to teach: end every prompt with `state the period and any
+filter you applied`. It converts an undefendable number into a defendable one.
+
+**The prompt to run live.** This one makes Copilot set the agenda from the model it can
+actually see, rather than answering a question you already knew the answer to.
+
+```text
+Act as a retail executive preparing a leadership readout from this report. Based only on
+the data in this semantic model, tell me the ten questions I should ask you to get the
+most insight, ranked by how much they would change a decision. For each, say in one line
+what the answer would let me do. Do not answer them yet.
+```
+
+Then pick three of what it proposes and ask them.
+
+Full persona sets for the executive, finance and margin owner, store operations,
+merchandising, channel and marketing, and the analyst who has to defend the number, each
+with expected values and the specific trap that persona falls into, are in the
+[business prompt library](../.github/prompts/business-prompt-library.md). The six-prompt
+leadership readout chain in section 7 of that file is the strongest four minutes in the
+whole demo.
+
+---
+
+## Work the visuals, not just the chat box
+
+The chat box is the least governed way to ask a question. The visuals on the page have
+already been reviewed. There are three ways to make AI use them.
+
+**Verified answers, the highest-trust path.** A verified answer pins a reviewed visual to a
+set of trigger phrases. When a question matches, Copilot returns **that visual**, not a
+generated query. It is the only mechanism here where a human pre-approved the exact output.
+Three are pinned in phase 5: `Total Net Sales by Region`, `Total Net Sales by Year-Month`
+and `Net Sales by Category`.
+
+Show it working, then show it missing:
+
+```text
+Show me net revenue by region.
+```
+
+```text
+Break net revenue down by region and then by store type.
+```
+
+The first returns the pinned visual. The second does not match a trigger, so Copilot
+generates a query instead. That contrast is the whole point of verified answers in one
+pair of prompts. Pin the two or three visuals leadership already quotes and no more, since
+every verified answer is a maintenance promise when the model changes.
+
+**Ask about the visual on screen.** In read mode these anchor the answer to something
+somebody already validated:
+
+```text
+Explain what this visual is telling me in plain language, and name the measure it uses.
+```
+
+```text
+Summarise this page for someone who has thirty seconds.
+```
+
+```text
+Suggest three follow-up questions this page raises that I cannot answer from it.
+```
+
+That last one is the natural handoff to standalone Copilot (preview) and to the phase 7
+data agent.
+
+**The classic `Analyze` options on a data point**, such as explaining an increase or a
+decrease, are a separate statistical feature rather than a Copilot one. Worth showing next
+to the Copilot answers, because the two together are more convincing than either alone.
 
 ---
 

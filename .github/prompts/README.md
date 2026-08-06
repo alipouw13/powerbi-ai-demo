@@ -293,6 +293,18 @@ Which store is most profitable?
 Show me sales for the Northwest region.
 ```
 
+Those score the model. To **use** it the way a business user would, see the
+[business prompt library](business-prompt-library.md): six persona prompt sets, the
+verified answer hit-and-miss pair, and a six-prompt leadership readout chain. The one to
+run live:
+
+```text
+Act as a retail executive preparing a leadership readout from this report. Based only on
+the data in this semantic model, tell me the ten questions I should ask you to get the
+most insight, ranked by how much they would change a decision. For each, say in one line
+what the answer would let me do. Do not answer them yet.
+```
+
 ---
 
 ## Phase 7, data agent (Fabric portal)
@@ -386,6 +398,18 @@ ContosoCoffee semantic model: net sales, gross margin, discounts, orders, units,
 average order value, sliced by date, product category, store, region and channel.
 Covers 1 January 2024 to 31 December 2025 for 8 US stores. Historical reporting only,
 no forecasting.
+```
+
+Once it answers the question bank correctly, use it. Section 8 of the
+[business prompt library](business-prompt-library.md) has the agent meta prompt, the
+multi-part questions the report Copilot pane cannot handle, the `@` mention prompts for
+Microsoft 365 Copilot and Teams (preview), and the five prompts that should be refused.
+Start with:
+
+```text
+You have access to the Contoso Coffee sales model. Describe what you can and cannot answer,
+list the measures and dimensions available to you, and give me the ten highest-value
+questions a retail leadership team should be asking you. Do not answer them yet.
 ```
 
 ---
