@@ -125,6 +125,71 @@ section of the concepts page for the current list.
 For new code, prefer the MCP endpoint. The older Python client path builds on the OpenAI
 Assistants API, which has an announced shutdown date of 26 August 2026.
 
+### Use it as a business user
+
+An agent that only ever gets asked the question bank is a test harness, not a product.
+Once it answers correctly, show what it is actually for.
+
+**When to reach for the agent instead of the report Copilot pane.**
+
+| | Copilot pane | Data agent |
+| --- | --- | --- |
+| Grounding | Semantic model plus the open report | Semantic model, plus report visual metadata |
+| Verified answers | Returns the pinned visual | Informs the answer, but the reply is data and prose |
+| Output | Visuals and prose | Text and tables, capped at 25 rows and 25 columns |
+| Multi-part questions | Weaker | Stronger, it is built for them |
+| Reuse | Inside Power BI | Teams, Microsoft 365 Copilot, Foundry, Copilot Studio, MCP |
+
+**The first prompt to run against any new agent.**
+
+```text
+You have access to the Contoso Coffee sales model. Describe what you can and cannot answer,
+list the measures and dimensions available to you, and give me the ten highest-value
+questions a retail leadership team should be asking you. Do not answer them yet.
+```
+
+If it describes its own scope vaguely, so does your publish description, and every
+downstream system that reads that description will route to it badly.
+
+**Where the agent earns its place, multi-part questions.**
+
+```text
+For 2025, give me a table of net sales, gross margin and gross margin percent by region. Add
+net sales per store as a fourth column, and tell me which region looks strongest on each of
+the two views.
+```
+
+```text
+Identify the three months in 2025 with the largest month over month decline in net sales.
+For each month, break the decline down by category and name the largest contributor.
+```
+
+The report Copilot pane will struggle with both. That difference is the argument for
+building the agent.
+
+**Where it lands, once published.** In Microsoft 365 Copilot or Teams (preview), `@` mention
+it in the conversation where the decision is being made:
+
+```text
+@Contoso Coffee Analyst what were net sales and gross margin percent in 2025, and how did
+that compare with 2024?
+```
+
+The answer arrives in the meeting rather than in a tab somebody has to remember to open.
+
+**Prerequisites specific to the agent**, on top of everything in phases 3 and 4, since the
+agent inherits every model weakness and fixes none of them:
+
+- One data source, the `ContosoCoffee` semantic model. Adding the lakehouse gives the
+  orchestrator an ungoverned route to the same numbers.
+- The tables ticked in the agent Explorer match the phase 4 AI data schema. If they differ,
+  the agent and the Copilot pane will disagree and neither will be wrong.
+- A real publish description. It becomes the tool description that Microsoft 365 Copilot and
+  MCP clients read when deciding whether to call your agent.
+
+Persona prompt sets, expected values, refusal prompts and consumption prompts are in the
+[business prompt library](../.github/prompts/business-prompt-library.md), section 8.
+
 ### Verify
 
 Ask the same 15 questions. Record them as pass D. Two AI surfaces over one governed model
