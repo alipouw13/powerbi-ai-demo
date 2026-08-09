@@ -165,6 +165,12 @@ Three rules that make the loop honest:
 2. Fix the model, not the prompt. Descriptions, summarisation, names, AI instructions.
 3. A verified answer is a patch, not a fix. It solves one phrasing, not the model.
 
+This loop is manual by design. Nothing is scheduled, nothing calls an API, and the only
+trigger is a person deciding to run a pass.
+[`validation/automation-spec.md`](validation/automation-spec.md) specifies what a
+continuously running version looks like, and why the two rules above get harder rather
+than easier once a machine is applying them.
+
 ---
 
 ## Score the model before you score the AI
@@ -372,7 +378,7 @@ data/                synthetic CSVs and the seeded generator that made them
 diagram/             the architecture diagram and the generator that produces it
 fabric/              notebook to land the CSVs as Lakehouse tables
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
-validation/          question bank, ground truth script, scorecard
+validation/          question bank, ground truth script, scorecard, automation spec
 docs/                one short guide per phase
 SPEC.md              the demo contract: phases, personas, success criteria
 ```
