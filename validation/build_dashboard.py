@@ -5,12 +5,28 @@ and the thing you are supposed to do about it are on the same screen. An alert
 that says "score dropped" and makes you go and find the reason is an alert
 people learn to close.
 
-The remediation tile is the point: it shows the literal instruction text a
+The remediation queue is the point: it shows the literal instruction text a
 human is being asked to approve, next to the question that failed and the
 evidence for it.
 
+Schema notes, learned by getting them wrong:
+
+* `schema_version` must match what the portal client expects. Too low and the
+  dashboard refuses to load with "Missing migration for dashboard version N".
+  The error message names the version it wants.
+* Queries are a separate top level array. Tiles reference them by
+  `queryRef.queryId`, and each query id must be referenced exactly once.
+* Every id must be a real RFC 4122 UUID. Readable strings with dashes in them,
+  like "ds-agent-eval", are rejected at load time.
+
+Ids are generated with uuid5 from a fixed namespace so that re-running this
+script produces the same dashboard rather than a new one, which is what keeps
+pinned references and share targets intact.
+
 Run:
     python validation/build_dashboard.py
+    python validation/build_dashboard.py --print-only
+    python validation/build_dashboard.py --recreate
 """
 
 from __future__ import annotations
@@ -25,31 +41,29 @@ import urllib.request
 import uuid
 
 WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-KQL_DATABASE_ID = "044af2c9-068d-4728-bf78-f83b6aa1c238"
 KQL_DATABASE_NAME = "EH_AgentEval"
 CLUSTER_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
 DASHBOARD_NAME = "Agent Accuracy"
 FABRIC_API = "https://api.fabric.microsoft.com"
 
-DATA_SOURCE_ID = "ds-agent-eval"
-PAGE_ID = "page-overview"
+# Bump this if the portal reports "Missing migration for dashboard version N".
+SCHEMA_VERSION = "78"
+
+NAMESPACE = uuid.UUID("6f1d3f5a-0c7f-4f2e-9c8a-5b1e7d2a4c30")
 
 
-def tile(title: str, query: str, x: int, y: int, w: int, h: int, viz: dict) -> dict:
-    return {
-        "id": str(uuid.uuid4()),
-        "title": title,
-        "query": {
-            "dataSource": {"kind": "inline", "dataSourceId": DATA_SOURCE_ID},
-            "text": query,
-            "kind": "kql",
-        },
-        "layout": {"x": x, "y": y, "width": w, "height": h},
-        "pageId": PAGE_ID,
-        "visualType": viz["visualType"],
-        "visualOptions": viz.get("visualOptions", {}),
-    }
+def stable_id(label: str) -> str:
+    """Deterministic UUID, so re-running does not churn the dashboard."""
+    return str(uuid.uuid5(NAMESPACE, label))
 
+
+DATA_SOURCE_ID = stable_id("datasource/eval")
+PAGE_ID = stable_id("page/overview")
+
+
+# --------------------------------------------------------------------------
+# Queries
+# --------------------------------------------------------------------------
 
 SCORE_TREND = """eval_runs
 | order by run_ts asc
@@ -64,6 +78,10 @@ LATEST_STATE = """eval_runs
           ['Guardrails lost']=guardrails_lost_count,
           ['Agent errors']=strcat(tostring(error_attempts), " / ", tostring(attempt_count)),
           ['Severity']=alert_severity"""
+
+FLAKE_HISTORY = """eval_runs
+| order by run_ts asc
+| project run_ts, flake_count, failure_count, guardrails_lost_count"""
 
 OPEN_ALERTS = """eval_runs
 | where alert_count > 0
@@ -87,9 +105,7 @@ REMEDIATION_QUEUE = """eval_defects
       "rejected")
 | project ['Question']=question_id,
           ['Problem']=classification,
-          ['Tier']=tier,
           ['Add this to the model AI instructions']=proposed_instruction,
-          ['Where']=instruction_target,
           ['Why']=rationale,
           ['Status'],
           ['Approved by']=approved_by
@@ -105,43 +121,87 @@ NEEDS_A_HUMAN = """eval_defects
 APPLIED = """eval_remediations
 | order by applied_ts desc
 | take 20
-| project applied_ts, question_id, instruction_target, approved_by, applied_by,
-          dry_run, verified, instruction"""
+| project applied_ts, question_id, approved_by, applied_by, dry_run, persisted,
+          verified, instruction"""
 
-FLAKE_HISTORY = """eval_runs
-| order by run_ts asc
-| project run_ts, flake_count, failure_count, guardrails_lost_count"""
+
+def line_options(x_column: str, y_columns: list[str]) -> dict:
+    """visualOptions for a time series line chart."""
+    return {
+        "multipleYAxes": {
+            "base": {
+                "id": "-1",
+                "label": "",
+                "columns": [],
+                "yAxisMaximumValue": None,
+                "yAxisMinimumValue": None,
+                "yAxisScale": "linear",
+                "horizontalLines": [],
+            },
+            "additional": [],
+            "showMultiplePanels": False,
+        },
+        "hideLegend": False,
+        "legendLocation": "bottom",
+        "xColumnTitle": "",
+        "xColumn": x_column,
+        "yColumns": y_columns,
+        "seriesColumns": None,
+        "xAxisScale": "linear",
+        "verticalLine": "",
+    }
+
+
+# title, query, visualType, visualOptions, x, y, width, height
+TILE_SPECS = [
+    ("Score over time", SCORE_TREND, "line",
+     line_options("run_ts", ["score", "max_score"]), 0, 0, 9, 5),
+    ("Latest run", LATEST_STATE, "table", {}, 9, 0, 9, 5),
+    ("Instability over time", FLAKE_HISTORY, "line",
+     line_options("run_ts", ["flake_count", "failure_count", "guardrails_lost_count"]),
+     0, 5, 9, 5),
+    ("Alerts raised", OPEN_ALERTS, "table", {}, 9, 5, 9, 5),
+    ("Remediation queue, approve or reject each line", REMEDIATION_QUEUE, "table", {},
+     0, 10, 18, 7),
+    ("Needs a human, no safe automatic fix", NEEDS_A_HUMAN, "table", {}, 0, 17, 9, 5),
+    ("Applied remediations", APPLIED, "table", {}, 9, 17, 9, 5),
+]
 
 
 def build_definition() -> dict:
-    tiles = [
-        tile("Score over time", SCORE_TREND, 0, 0, 9, 5,
-             {"visualType": "line",
-              "visualOptions": {"xColumn": {"type": "datetime", "name": "run_ts"},
-                                "yColumns": ["score", "max_score"],
-                                "yAxisMaximumValue": 15, "yAxisMinimumValue": 0}}),
-        tile("Latest run", LATEST_STATE, 9, 0, 9, 5,
-             {"visualType": "table"}),
-        tile("Instability over time", FLAKE_HISTORY, 0, 5, 9, 5,
-             {"visualType": "line",
-              "visualOptions": {"xColumn": {"type": "datetime", "name": "run_ts"},
-                                "yColumns": ["flake_count", "failure_count",
-                                             "guardrails_lost_count"]}}),
-        tile("Alerts raised", OPEN_ALERTS, 9, 5, 9, 5,
-             {"visualType": "table"}),
-        tile("Remediation queue, approve or reject each line",
-             REMEDIATION_QUEUE, 0, 10, 18, 7, {"visualType": "table"}),
-        tile("Needs a human, no safe automatic fix",
-             NEEDS_A_HUMAN, 0, 17, 9, 5, {"visualType": "table"}),
-        tile("Applied remediations", APPLIED, 9, 17, 9, 5,
-             {"visualType": "table"}),
-    ]
+    queries = []
+    tiles = []
+
+    for title, text, visual_type, visual_options, x, y, width, height in TILE_SPECS:
+        query_id = stable_id(f"query/{title}")
+        queries.append({
+            "id": query_id,
+            "dataSource": {"kind": "inline", "dataSourceId": DATA_SOURCE_ID},
+            "text": text,
+            "usedVariables": [],
+        })
+        tiles.append({
+            "id": stable_id(f"tile/{title}"),
+            "title": title,
+            "visualType": visual_type,
+            "pageId": PAGE_ID,
+            "layout": {"x": x, "y": y, "width": width, "height": height},
+            "queryRef": {"kind": "query", "queryId": query_id},
+            "visualOptions": visual_options,
+        })
 
     return {
         "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/kqlDashboard/definition/1.0.0/schema.json",
-        "schema_version": "62",
+        "id": stable_id("dashboard/agent-accuracy"),
+        "schema_version": SCHEMA_VERSION,
         "title": DASHBOARD_NAME,
-        "autoRefresh": {"enabled": True, "defaultDuration": "5m", "minimumDuration": "1m"},
+        "autoRefresh": {
+            "enabled": True,
+            "defaultDuration": "5m",
+            "minimumDuration": "1m",
+        },
+        "baseQueries": [],
+        "parameters": [],
         "dataSources": [{
             "id": DATA_SOURCE_ID,
             "name": KQL_DATABASE_NAME,
@@ -151,11 +211,63 @@ def build_definition() -> dict:
             "scopeId": "kusto",
         }],
         "pages": [{"id": PAGE_ID, "name": "Overview"}],
+        "queries": queries,
         "tiles": tiles,
-        "baseQueries": [],
-        "parameters": [],
     }
 
+
+def validate(definition: dict) -> list[str]:
+    """The checks the load endpoint makes, run here where they are cheap.
+
+    Every one of these corresponds to a real load failure, which is why they
+    are worth doing before deploying rather than reading about in a modal.
+    """
+    problems = []
+
+    def is_uuid(value) -> bool:
+        try:
+            uuid.UUID(str(value))
+            return True
+        except (ValueError, AttributeError, TypeError):
+            return False
+
+    for section in ("tiles", "queries", "dataSources", "pages"):
+        seen = set()
+        for entry in definition[section]:
+            entry_id = entry.get("id")
+            if not is_uuid(entry_id):
+                problems.append(f"{section}: id {entry_id!r} is not an RFC 4122 UUID")
+            if entry_id in seen:
+                problems.append(f"{section}: duplicate id {entry_id}")
+            seen.add(entry_id)
+
+    query_ids = {q["id"] for q in definition["queries"]}
+    referenced = [t["queryRef"]["queryId"] for t in definition["tiles"]]
+
+    for query_id in referenced:
+        if query_id not in query_ids:
+            problems.append(f"tile references unknown query {query_id}")
+    for query_id in query_ids:
+        count = referenced.count(query_id)
+        if count != 1:
+            problems.append(f"query {query_id} referenced {count} times, must be once")
+
+    page_ids = {p["id"] for p in definition["pages"]}
+    for tile in definition["tiles"]:
+        if tile["pageId"] not in page_ids:
+            problems.append(f"tile {tile['title']!r} points at an unknown page")
+
+    source_ids = {d["id"] for d in definition["dataSources"]}
+    for query in definition["queries"]:
+        if query["dataSource"]["dataSourceId"] not in source_ids:
+            problems.append(f"query {query['id']} points at an unknown data source")
+
+    return problems
+
+
+# --------------------------------------------------------------------------
+# Fabric REST
+# --------------------------------------------------------------------------
 
 def token() -> str:
     result = subprocess.run(
@@ -176,7 +288,8 @@ def call(method: str, url: str, body: dict | None = None):
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             raw = response.read().decode("utf-8")
-            return response.status, (json.loads(raw) if raw.strip() else {}), dict(response.headers)
+            payload = json.loads(raw) if raw.strip() else {}
+            return response.status, payload, dict(response.headers)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise SystemExit(f"HTTP {exc.code} {method} {url}\n{raw[:1500]}") from None
@@ -195,7 +308,9 @@ def wait(operation_id: str) -> None:
 
 
 def find_existing() -> str | None:
-    _, payload, _ = call("GET", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items?type=KQLDashboard")
+    _, payload, _ = call(
+        "GET", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items?type=KQLDashboard"
+    )
     for item in payload.get("value", []):
         if item.get("displayName") == DASHBOARD_NAME:
             return item["id"]
@@ -203,12 +318,23 @@ def find_existing() -> str | None:
 
 
 def main() -> int:
+    definition_json = build_definition()
+    problems = validate(definition_json)
+    if problems:
+        print("dashboard definition is invalid:")
+        for problem in problems:
+            print(f"  {problem}")
+        return 1
+
     if "--print-only" in sys.argv:
-        print(json.dumps(build_definition(), indent=2))
+        print(json.dumps(definition_json, indent=2))
         return 0
 
+    print(f"definition valid: {len(definition_json['tiles'])} tiles, "
+          f"schema_version {SCHEMA_VERSION}")
+
     encoded = base64.b64encode(
-        json.dumps(build_definition(), indent=2).encode("utf-8")
+        json.dumps(definition_json, indent=2).encode("utf-8")
     ).decode("utf-8")
     definition = {"parts": [{
         "path": "RealTimeDashboard.json",
@@ -217,6 +343,13 @@ def main() -> int:
     }]}
 
     existing = find_existing()
+
+    if existing and "--recreate" in sys.argv:
+        print(f"deleting existing dashboard {existing}")
+        call("DELETE", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items/{existing}")
+        existing = None
+        time.sleep(5)
+
     if existing:
         print(f"updating dashboard {existing}")
         status, _, headers = call(
@@ -227,18 +360,29 @@ def main() -> int:
         dashboard_id = existing
     else:
         print("creating dashboard")
-        status, payload, headers = call(
-            "POST", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items",
-            {
-                "displayName": DASHBOARD_NAME,
-                "description": (
-                    "Data agent accuracy: score, instability, alerts, and the "
-                    "remediation queue with the exact instruction text awaiting approval."
-                ),
-                "type": "KQLDashboard",
-                "definition": definition,
-            },
-        )
+        # A soft deleted item holds its display name for a few minutes, so a
+        # recreate immediately after a delete gets a retriable 409.
+        for attempt in range(12):
+            try:
+                status, payload, headers = call(
+                    "POST", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items",
+                    {
+                        "displayName": DASHBOARD_NAME,
+                        "description": (
+                            "Data agent accuracy: score, instability, alerts, and "
+                            "the remediation queue with the exact instruction text "
+                            "awaiting approval."
+                        ),
+                        "type": "KQLDashboard",
+                        "definition": definition,
+                    },
+                )
+                break
+            except SystemExit as exc:
+                if "ItemDisplayNameNotAvailableYet" not in str(exc) or attempt == 11:
+                    raise
+                print(f"  name not free yet, retrying in 30s ({attempt + 1}/12)")
+                time.sleep(30)
         dashboard_id = payload.get("id")
 
     if status == 202:
