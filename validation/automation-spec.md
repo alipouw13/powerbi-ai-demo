@@ -16,16 +16,21 @@ This spec describes the production version, and the repo now implements it.
 
 | Artefact | Where | What it does |
 | --- | --- | --- |
-| [`eval_harness.py`](eval_harness.py) | repo | Pure grading, classification and routing logic. No Fabric imports, so all of it is unit tested on a laptop |
+| [`eval_harness.py`](eval_harness.py) | repo | Pure grading, classification, fix routing and instruction merging. No Fabric imports, so all of it is unit tested on a laptop |
 | [`agent_client.py`](agent_client.py) | repo | Standard library MCP client for the data agent (preview) |
 | [`run_eval.py`](run_eval.py) | repo | Runs the loop from a laptop, for development and debugging |
-| [`build_eval_notebook.py`](build_eval_notebook.py) | repo | Generates the notebook so the embedded copy cannot drift |
-| [`build_activator.py`](build_activator.py) | repo | Creates the Activator through the Fabric REST API |
-| [`test_eval_harness.py`](test_eval_harness.py) | repo | 63 tests, including replays of real agent answers |
-| [`test_notebook_drift.py`](test_notebook_drift.py) | repo | 23 tests, including executing the notebook's embedded code |
-| `agent_eval` notebook | Fabric | Runs the bank, grades, writes Delta, publishes to Eventhouse |
+| [`approve.py`](approve.py) | repo | The human gate. Lists the queue, approves or rejects one line at a time |
+| [`build_eval_notebook.py`](build_eval_notebook.py) | repo | Generates the eval notebook so the embedded copy cannot drift |
+| [`build_remediation_notebook.py`](build_remediation_notebook.py) | repo | Generates the remediation notebook |
+| [`build_activator.py`](build_activator.py) | repo | Creates both Activator rules through the Fabric REST API |
+| [`build_dashboard.py`](build_dashboard.py) | repo | Creates the real-time dashboard |
+| [`test_eval_harness.py`](test_eval_harness.py) | repo | Grading, routing and merge tests, including replays of real agent answers |
+| [`test_notebook_drift.py`](test_notebook_drift.py) | repo | Regenerates both notebooks and executes their embedded code |
+| `agent_eval` notebook | Fabric | Runs the bank, grades, writes Delta, publishes to the eventhouse |
+| `agent_remediate` notebook | Fabric | Applies an approved instruction, backs up first, proves it persisted |
 | `EH_AgentEval` eventhouse | Fabric | The event spine Activator can watch |
-| `Agent Accuracy Alerts` | Fabric | Fires a Teams message on a high severity run |
+| `Agent Accuracy Alerts` | Fabric | Two rules: alert on a high severity run, and apply an approved remediation |
+| `Agent Accuracy` dashboard | Fabric | Score, instability, alerts, and the remediation queue |
 
 Run the tests with:
 
@@ -33,18 +38,47 @@ Run the tests with:
 python -m unittest discover -s validation -p "test_*.py"
 ```
 
-### Two decisions worth knowing
+### The loop, end to end
 
-**No `%pip install` in the notebook.** The first version installed the `mcp` package. That
-pulls new builds of pydantic, anyio, typing-extensions and jsonschema over the ones the
-Spark runtime ships, and the scheduled job died in twelve seconds. The MCP wire protocol
-is a handful of JSON-RPC calls, so `agent_client.py` speaks it with `urllib` and the
-notebook has no dependencies at all.
+```
+  agent_eval (scheduled)
+        |  writes eval_runs, eval_results, eval_defects
+        |  each defect carries the literal sentence to add
+        v
+  Activator rule 1 ---> Teams: a run regressed
+        |
+        v
+  a human reads the dashboard and runs
+     python validation/approve.py --question Q10 --by you@example.com
+        |  writes eval_approvals
+        v
+  Activator rule 2 ---> runs agent_remediate
+        |  appends the approved line to the model AI instructions
+        |  backs up first, proves the write persisted
+        v
+  agent_eval again ---> did the score actually move
+```
+
+### Three decisions worth knowing
+
+**No `%pip install` in either notebook.** The first version installed the `mcp` package.
+That pulls new builds of pydantic, anyio, typing-extensions and jsonschema over the ones
+the Spark runtime ships, and the scheduled job died in twelve seconds. The MCP wire
+protocol is a handful of JSON-RPC calls, so `agent_client.py` speaks it with `urllib`.
 
 **Activator cannot watch a Delta table.** Its supported sources are Eventstream, KQL,
 Real-Time Hub and Digital Twin Builder. So the notebook writes the history to Delta, which
-is what you query, and publishes one summary row per run to an Eventhouse, which is what
+is what you query, and publishes one summary row per run to an eventhouse, which is what
 Activator watches.
+
+**The fix goes in the model, never the agent.** Agent-level instructions are not passed to
+the DAX generation step for a semantic model source. A wrong number, an unrequested
+filter, or an invented region can only be fixed in the model's own AI instructions, which
+live at `model.cultures[en-US].linguisticMetadata.content.CustomInstructions` and are
+reached over XMLA with sempy. `getDefinition` is blocked for that item, so the definition
+API is not an option. The remediation notebook refuses any instruction whose target is not
+the model, precisely so that a fix cannot be applied somewhere it would look successful
+and change nothing.
 
 ---
 
@@ -293,13 +327,42 @@ who was not on call should be able to judge it without opening the notebook.
 A fix is not verified because it merged. It is verified because the same question, asked
 the same way, now passes repeatedly.
 
-1. Merge triggers a targeted re-run of the affected question at `N = 10`.
-2. Stable pass closes the defect and records the fix in `eval_defects`.
-3. Anything else reopens it and escalates to tier 2.
-4. The next full scheduled run confirms nothing else regressed.
+1. Approval triggers `agent_remediate`, which appends the approved line.
+2. The next evaluation run re-asks every question.
+3. Stable pass closes the defect and records the fix in `eval_defects`.
+4. Anything else reopens it and escalates to tier 2.
 
-Step 4 matters. AI instructions interact. An instruction added to fix Q07 can change how
-Q03 is answered, and a per-question re-run will not see it.
+Step 2 re-runs the whole bank rather than the affected question, deliberately. AI
+instructions interact. A line added to fix Q10 can change how Q03 is answered, and a
+per-question re-run will not see it.
+
+### The check that stops a lie
+
+The remediation notebook proves the write landed before it reports success, and it does so
+with two independent pieces of evidence:
+
+| Check | What it catches |
+| --- | --- |
+| The instruction text reads back as expected | A write that was rejected or truncated |
+| The server side `lastUpdate` moved | A write that never reached the model at all |
+
+The second one exists because of a real incident during this build. A run reported success,
+recorded a remediation, and marked the approval applied, while the content read back
+matched perfectly. The model had not changed. The content read back can be served from the
+session's own copy of the model, so it will happily show the value you just set even when
+nothing reached the server. `lastUpdate` is server side and is the only honest witness.
+
+The same incident produced two more rules that are now enforced in code:
+
+- **An approval is only consumed when the change is in the model.** Consuming it after a
+  no-op loses the work and leaves a defect nobody is ever prompted about again.
+- **An instruction that is already present also satisfies the approval.** Otherwise an
+  approval applied by an earlier run, or by a person editing the model directly, sits open
+  forever.
+
+A remediation loop that reports success without changing anything is worse than no loop,
+because it produces a green dashboard over a model that is still wrong. Everything above
+exists to make that outcome impossible rather than unlikely.
 
 ---
 
@@ -336,6 +399,34 @@ the grader against real answers before you trust a single score it produces.** A
 that cries wolf on a correct answer is worse than no grader, because people stop reading
 the alerts.
 
+### What happened when a fix was actually applied
+
+The first real pass through the full loop is worth recording honestly, because it did not
+end in a clean fix.
+
+A human approved the default time scope instruction. The remediation notebook appended it
+to the model, proved the write persisted, and the next evaluation run scored 11 out of 15
+against 9 before. Q08 and Q12 went from flake to stable pass, and all three guardrail
+probes went to stable pass.
+
+**Q10 got worse.** It moved from flake to stable failure. Q11 and Q04 were still flakes.
+
+So one sentence fixed part of a defect class and not the rest, and the loop only knows
+that because it re-measured. This is exactly what the verification step is for, and it is
+why a merge is never recorded as a fix.
+
+It also exposed a stuck state that is now closed. Left alone, the next run would propose
+the same sentence for Q10, a human would approve it, the merge would be a no-op because
+the text is already there, and the defect would never close while everyone felt busy. The
+harness now reads which instructions are already in the model and escalates any defect
+whose only proposal has already been tried:
+
+> The instruction this defect would propose is already in the model and the question is
+> still failing. Adding it again changes nothing.
+
+An automated remediation loop needs a way to admit that its remedy did not work. Without
+one it will keep prescribing.
+
 ---
 
 ## 6. What this does not solve
@@ -346,6 +437,10 @@ Stated plainly, because a spec that claims to close the loop entirely is selling
   sixteenth thing a user asks. The bank is a regression suite, not a proof of correctness.
 - **It cannot judge wording.** Anything in tier 3 needs a human, and wording is most of
   what a business user actually experiences.
+- **It writes sentences, it does not diagnose.** The instruction library is a fixed set of
+  lines written by people. The loop chooses between them from evidence; it does not
+  compose new guidance, and the first live application fixed only part of the defect class
+  it was aimed at.
 - **It has no opinion on whether the question is worth asking.** Coverage is a human
   design problem.
 - **Tolerance-based comparison can mask a compensating error.** Two offsetting mistakes
@@ -368,19 +463,22 @@ Each step is useful on its own. The first five are built.
 | 2 | Repetitions and flake classification | Built, and the highest value per hour spent |
 | 3 | Eventhouse publish and Activator alert to Teams | Built |
 | 4 | Errored attempts separated from model defects | Built |
-| 5 | Defect classification and tiered fix proposals in `eval_defects` | Built |
-| 6 | Confirmation card with the three responses | Not built |
-| 7 | Tier 2 issue creation with diagnosis | Not built |
-| 8 | Tier 1 pull request generation | Not built, and the least valuable. Do it last |
+| 5 | Defect classification and tiered fix proposals with literal text | Built |
+| 6 | Real-time dashboard with the remediation queue | Built |
+| 7 | Approval gate, and Activator applying an approved instruction | Built |
+| 8 | Tier 2 issue creation with diagnosis | Not built |
 
 Steps 1 and 2 removed the manual pass and immediately caught nondeterminism the old
-process could not see, because a human runs each question once. Step 8 is the headline
-feature and the smallest real gain, because tier 1 fixes are the ones a human already
-writes in about two minutes.
+process could not see, because a human runs each question once.
 
-The gap between step 5 and step 6 is the human gate. Today the notebook writes the
-proposal and Activator raises the alert; a person reads `eval_defects`, confirms, and
-applies the fix. That is the correct place to stop until somebody actually needs the rest.
+Step 7 is the headline feature and it is worth being precise about what it does. It does
+not decide anything. A person reads one sentence and approves it; the machine appends that
+exact sentence, proves it landed, and re-measures. The judgement stays human and the
+typing becomes automatic, which is the right way round.
+
+Step 8 is left undone on purpose. Tier 2 defects need a person to open the model and
+think, and an automatically filed issue mostly moves that thinking somewhere less
+convenient.
 
 ---
 

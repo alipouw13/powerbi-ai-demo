@@ -363,7 +363,21 @@ print(f"\\nrun_id {run_id}")
 
 
 SCORE_CELL = '''summary = score_run(ordered)
-proposals = propose_fixes(ordered, expectations)
+
+# Instructions already sitting in the model. A defect whose only proposal is
+# one of these has already had that fix tried, so it is escalated to a human
+# rather than offered again.
+applied_instructions = frozenset()
+if spark.catalog.tableExists(lh + "eval_remediations"):
+    applied_instructions = frozenset(
+        r["instruction"]
+        for r in spark.table(lh + "eval_remediations")
+                      .filter("dry_run = false AND persisted = true")
+                      .select("instruction").distinct().collect()
+    )
+print(f"{len(applied_instructions)} instruction(s) already applied to the model")
+
+proposals = propose_fixes(ordered, expectations, applied_instructions)
 
 print(f"score             : {summary['score']} / {summary['max_score']}")
 print(f"flakes            : {summary['flake_questions'] or 'none'}")
@@ -379,6 +393,9 @@ if proposals:
         print(f"  {p.question_id}  tier {p.tier}  {TIER_ACTION[p.tier]}")
         print(f"      target   : {p.fix_target}")
         print(f"      rationale: {p.rationale}")
+        if p.proposed_instruction:
+            print(f"      approve  : add this to the {p.instruction_target} instructions")
+            print(f"                 \\"{p.proposed_instruction}\\"")
 else:
     print("\\nno defects, so nothing to propose")
 '''
@@ -491,28 +508,32 @@ defects_schema = StructType([
     StructField("tier", IntegerType()),
     StructField("fix_target", StringType()),
     StructField("rationale", StringType()),
+    StructField("proposed_instruction", StringType()),
+    StructField("instruction_target", StringType()),
+    StructField("auto_appliable", BooleanType()),
     StructField("automatable", BooleanType()),
     StructField("action", StringType()),
     StructField("status", StringType()),
 ])
 
-if proposals:
-    defect_rows = [
-        Row(
-            run_id=run_id, run_ts=run_ts, question_id=p.question_id,
-            classification=p.classification, tier=int(p.tier),
-            fix_target=p.fix_target, rationale=p.rationale,
-            automatable=bool(p.automatable), action=TIER_ACTION[p.tier],
-            status="awaiting_human_confirmation",
-        )
-        for p in proposals
-    ]
-    spark.createDataFrame(defect_rows, schema=defects_schema) \\
-         .write.mode("append").format("delta").saveAsTable(lh + defects_table)
-else:
-    # Create the table even on a clean run so Activator has something to bind.
-    spark.createDataFrame([], schema=defects_schema) \\
-         .write.mode("append").format("delta").saveAsTable(lh + defects_table)
+defect_rows = [
+    Row(
+        run_id=run_id, run_ts=run_ts, question_id=p.question_id,
+        classification=p.classification, tier=int(p.tier),
+        fix_target=p.fix_target, rationale=p.rationale,
+        proposed_instruction=p.proposed_instruction,
+        instruction_target=p.instruction_target,
+        auto_appliable=bool(p.auto_appliable),
+        automatable=bool(p.automatable), action=TIER_ACTION[p.tier],
+        status="awaiting_human_approval",
+    )
+    for p in proposals
+]
+
+# Create the table even on a clean run so downstream items have something to
+# bind to. An empty dashboard is better than a broken one.
+defects_df = spark.createDataFrame(defect_rows, schema=defects_schema)
+defects_df.write.mode("append").format("delta").saveAsTable(lh + defects_table)
 
 print(f"wrote {runs_table}, {results_table}, {defects_table}")
 print(f"previous score {previous_score} -> {summary['score']}")
@@ -523,18 +544,30 @@ KUSTO_CELL = '''import notebookutils
 
 kusto_token = notebookutils.credentials.getToken(KUSTO_URI)
 
-(
-    runs_df.write.format("com.microsoft.kusto.spark.synapse.datasource")
-    .option("kustoCluster", KUSTO_URI)
-    .option("kustoDatabase", KUSTO_DB)
-    .option("kustoTable", "eval_runs")
-    .option("accessToken", kusto_token)
-    .option("tableCreateOptions", "CreateIfNotExist")
-    .mode("Append")
-    .save()
-)
 
-print(f"published run {run_id} to {KUSTO_DB}.eval_runs")
+def to_kusto(df, table):
+    (
+        df.write.format("com.microsoft.kusto.spark.synapse.datasource")
+        .option("kustoCluster", KUSTO_URI)
+        .option("kustoDatabase", KUSTO_DB)
+        .option("kustoTable", table)
+        .option("accessToken", kusto_token)
+        .option("tableCreateOptions", "CreateIfNotExist")
+        .mode("Append")
+        .save()
+    )
+    print(f"published {df.count()} row(s) to {KUSTO_DB}.{table}")
+
+
+to_kusto(runs_df, "eval_runs")
+
+# Defects carry the literal instruction a human is asked to approve, so the
+# dashboard can show the exact text rather than a description of it.
+if defect_rows:
+    to_kusto(defects_df, "eval_defects")
+else:
+    print("no defects to publish")
+
 print(f"alert_severity={alert_severity} alert_count={len(alerts)}")
 '''
 

@@ -126,13 +126,22 @@ result surprises you, run it again before concluding anything.
 Everything above is the manual pass, and it is still the right thing to do the first time
 because watching the answers is how you learn what the model is doing.
 
-The repo also automates it. [`validation/automation-spec.md`](../validation/automation-spec.md)
-covers the design; the short version is a Fabric notebook that asks every question three
-times, grades against ground truth, writes `eval_runs`, `eval_results` and `eval_defects`,
-publishes a summary to an Eventhouse, and lets an Activator raise a Teams alert. It
-proposes fixes and never applies them.
+The repo also automates it, end to end.
+[`validation/automation-spec.md`](../validation/automation-spec.md) covers the design; the
+short version is:
 
-Two things it caught immediately that the manual pass cannot:
+1. A Fabric notebook asks every question three times and grades against ground truth.
+2. Results go to Delta, and a summary goes to an eventhouse.
+3. An Activator rule raises a Teams alert when a run regresses.
+4. A real-time dashboard shows the failures next to the exact sentence that would fix each
+   one.
+5. A human approves one sentence with
+   `python validation/approve.py --question Q10 --by you@example.com`.
+6. A second Activator rule runs the remediation notebook, which appends that sentence to
+   the model AI instructions and proves the write landed.
+7. The next evaluation run says whether it actually worked.
+
+Three things it caught immediately that the manual pass cannot:
 
 - **Nondeterminism.** Six of the eighteen questions answered correctly on some attempts
   and not others. A manual pass asks each question once, so it would have scored the same
@@ -141,6 +150,9 @@ Two things it caught immediately that the manual pass cannot:
 - **Silent time narrowing.** Q10, Q11 and Q12 carry no time filter, and the agent
   sometimes answered for the most recent period only. The numbers looked plausible and
   were roughly a tenth of the truth.
+- **A fix that only half worked.** The approved instruction took the score from 9 to 11
+  and fixed the guardrails, and Q10 got worse. The loop knows that only because it
+  re-measured.
 
 Run the tests for the grading logic with:
 
@@ -148,9 +160,11 @@ Run the tests for the grading logic with:
 python -m unittest discover -s validation -p "test_*.py"
 ```
 
-Two rules from that spec are worth knowing even if you never run it:
+Three rules from that spec are worth knowing even if you never run it:
 
 - **Repeat every question.** One sample cannot distinguish wrong from ambiguous.
+- **The fix goes in the model, not the agent.** Agent instructions are not passed to the
+  DAX generation step, so a fix written there looks like a change and does nothing.
 - **Never let automation write verified answers.** A loop optimising a `/ 15` score will
   pin its way to 15/15 over a model that is still wrong. A verified answer is a patch, not
   a fix, and that rule has to hold hardest when a machine is applying it.

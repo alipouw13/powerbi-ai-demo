@@ -165,13 +165,16 @@ Three rules that make the loop honest:
 2. Fix the model, not the prompt. Descriptions, summarisation, names, AI instructions.
 3. A verified answer is a patch, not a fix. It solves one phrasing, not the model.
 
-This loop is manual by design, and the repo also automates it. The notebook in
+This loop is manual by design, and the repo also automates it end to end. The notebook in
 [`fabric/agent_eval.ipynb`](fabric/agent_eval.ipynb) asks every question three times,
-grades against ground truth, and raises an Activator alert on a regression. It proposes
-fixes and never applies them.
+grades against ground truth, and raises an Activator alert on a regression. A real-time
+dashboard shows each failure next to the exact sentence that would fix it. A human
+approves one sentence, and [`fabric/agent_remediate.ipynb`](fabric/agent_remediate.ipynb)
+appends it to the model AI instructions, proves the write landed, and leaves the next run
+to say whether it worked.
 [`validation/automation-spec.md`](validation/automation-spec.md) explains the design, what
-it found on its first run, and why the two rules above get harder rather than easier once
-a machine is applying them.
+it found, and why the rules above get harder rather than easier once a machine is applying
+them.
 
 ---
 
