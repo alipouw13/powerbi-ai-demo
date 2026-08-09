@@ -27,6 +27,7 @@ import uuid
 
 WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
 KQL_DATABASE_ID = "044af2c9-068d-4728-bf78-f83b6aa1c238"
+REMEDIATION_NOTEBOOK_ID = "d3863cec-220f-4de1-beb4-0331bdd6c974"
 ACTIVATOR_NAME = "Agent Accuracy Alerts"
 RECIPIENTS = ["admin@MngEnvMCAP257273.onmicrosoft.com"]
 
@@ -42,6 +43,17 @@ eval_runs
           flake_count, failure_count, guardrails_lost_count,
           errored_count, alert_count, alert_severity, alert_detail
 | order by run_ts asc"""
+
+# The human gate. A row lands here only when a person has read the proposed
+# instruction and decided. The rule reacts to the decision, never to the
+# proposal, which is what keeps a machine from approving its own work.
+APPROVALS_QUERY = """declare query_parameters(startTime:datetime, endTime:datetime);
+eval_approvals
+| where approved_ts between (startTime .. endTime)
+| where applied == false
+| project approved_ts, approval_id, question_id, decision, approved_by,
+          instruction_target, proposed_instruction
+| order by approved_ts asc"""
 
 
 def stringify(template: dict) -> str:
@@ -272,7 +284,202 @@ def build_entities() -> list[dict]:
         "type": "timeSeriesView-v1",
     }
 
-    return [container, source, source_event, rule]
+    # ----------------------------------------------------------------------
+    # The approval half of the loop
+    # ----------------------------------------------------------------------
+    #
+    # A row in eval_approvals is a human saying "yes, add exactly this
+    # sentence". The rule reacts to that decision, never to the proposal that
+    # produced it. That separation is what stops the loop approving its own
+    # work, and it is why the approval carries its own copy of the instruction
+    # text rather than a pointer to a row that could change underneath it.
+
+    approvals_source_id = str(uuid.uuid4())
+    approvals_event_id = str(uuid.uuid4())
+    notebook_action_id = str(uuid.uuid4())
+    approval_rule_id = str(uuid.uuid4())
+
+    approvals_source = {
+        "uniqueIdentifier": approvals_source_id,
+        "payload": {
+            "name": "Remediation approvals",
+            "runSettings": {"executionIntervalInSeconds": 60},
+            "query": {"queryString": APPROVALS_QUERY},
+            "eventhouseItem": {
+                "itemId": KQL_DATABASE_ID,
+                "workspaceId": WORKSPACE_ID,
+                "itemType": "KustoDatabase",
+            },
+            "queryParameters": [
+                {"name": "startTime", "type": "DURATION_START",
+                 "value": "2026-01-01T00:00:00Z"},
+                {"name": "endTime", "type": "DURATION_END",
+                 "value": "2026-01-01T00:05:00Z"},
+            ],
+            "eventTimeSettings": {
+                "timeFieldName": "approved_ts",
+                "ingestionDelayInSeconds": 60,
+                "timeZone": "UTC",
+            },
+            "metadata": {
+                "workspaceId": WORKSPACE_ID,
+                "measureName": "",
+                "querySetId": "",
+                "queryId": "",
+            },
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+        },
+        "type": "kqlSource-v1",
+    }
+
+    approvals_event = {
+        "uniqueIdentifier": approvals_event_id,
+        "payload": {
+            "name": "Approval decision",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+            "definition": {
+                "type": "Event",
+                "instance": stringify({
+                    "templateId": "SourceEvent",
+                    "templateVersion": TEMPLATE_VERSION,
+                    "steps": [{
+                        "name": "SourceEventStep",
+                        "id": str(uuid.uuid4()),
+                        "rows": [{
+                            "name": "SourceSelector",
+                            "kind": "SourceReference",
+                            "arguments": [{
+                                "name": "entityId", "type": "string",
+                                "value": approvals_source_id,
+                            }],
+                        }],
+                    }],
+                }),
+            },
+        },
+        "type": "timeSeriesView-v1",
+    }
+
+    notebook_action = {
+        "uniqueIdentifier": notebook_action_id,
+        "payload": {
+            "name": "Run agent_remediate",
+            "fabricItem": {
+                "itemId": REMEDIATION_NOTEBOOK_ID,
+                "workspaceId": WORKSPACE_ID,
+                "itemType": "SynapseNotebook",
+            },
+            "jobType": "RunNotebook",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+        },
+        "type": "fabricItemAction-v1",
+    }
+
+    def parameter(name: str, kind: str, value) -> dict:
+        return {
+            "kind": "FabricItemParameter",
+            "type": "complex",
+            "arguments": [
+                {"name": "parameterName", "type": "string", "value": name},
+                {"name": "parameterType", "type": "string", "value": kind},
+                {"name": "parameterValue", "type": "complexArray",
+                 "values": [{"type": "string", "value": value}]},
+            ],
+        }
+
+    approval_rule_template = {
+        "templateId": "EventTrigger",
+        "templateVersion": TEMPLATE_VERSION,
+        "steps": [
+            {
+                "name": "FieldsDefaultsStep",
+                "id": str(uuid.uuid4()),
+                "rows": [{
+                    "name": "EventSelector",
+                    "kind": "Event",
+                    "arguments": [{
+                        "kind": "EventReference",
+                        "type": "complex",
+                        "name": "event",
+                        "arguments": [{
+                            "name": "entityId", "type": "string",
+                            "value": approvals_event_id,
+                        }],
+                    }],
+                }],
+            },
+            {
+                "name": "EventDetectStep",
+                "id": str(uuid.uuid4()),
+                "rows": [
+                    {
+                        "name": "EventFieldSelector",
+                        "kind": "EventField",
+                        "arguments": [{
+                            "name": "fieldName", "type": "string",
+                            "value": "decision",
+                        }],
+                    },
+                    {
+                        "name": "TextValueCondition",
+                        "kind": "TextValueCondition",
+                        "arguments": [
+                            {"name": "op", "type": "string", "value": "IsEqualTo"},
+                            {"name": "value", "type": "string", "value": "approved"},
+                        ],
+                    },
+                ],
+            },
+            {
+                "name": "ActStep",
+                "id": str(uuid.uuid4()),
+                "rows": [{
+                    "name": "FabricItemBinding",
+                    "kind": "FabricItemInvocation",
+                    "arguments": [
+                        {"name": "workspaceId", "type": "string", "value": WORKSPACE_ID},
+                        {"name": "itemId", "type": "string",
+                         "value": REMEDIATION_NOTEBOOK_ID},
+                        {"name": "itemType", "type": "string",
+                         "value": "SynapseNotebook"},
+                        {"name": "jobType", "type": "string", "value": "RunNotebook"},
+                        {"name": "fabricJobConnectionDocumentId", "type": "string",
+                         "value": notebook_action_id},
+                        {"name": "additionalInformation", "type": "array", "values": []},
+                        {"name": "parameters", "type": "array", "values": [
+                            # Empty question id means "every approved and
+                            # unapplied row", so a burst of approvals is one
+                            # run rather than a race between several.
+                            parameter("QUESTION_ID", "String", ""),
+                            parameter("APPROVED_BY", "String", "activator-auto-apply"),
+                            parameter("DRY_RUN", "Boolean", "false"),
+                        ]},
+                    ],
+                }],
+            },
+        ],
+    }
+
+    approval_rule = {
+        "uniqueIdentifier": approval_rule_id,
+        "payload": {
+            "name": "Approved remediation, apply it",
+            "description": "Created by: skills-for-fabric",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+            "definition": {
+                "type": "Rule",
+                "instance": stringify(approval_rule_template),
+                "settings": {"shouldRun": True, "shouldApplyRuleOnUpdate": False},
+            },
+        },
+        "type": "timeSeriesView-v1",
+    }
+
+    return [
+        container,
+        source, source_event, rule,
+        approvals_source, approvals_event, notebook_action, approval_rule,
+    ]
 
 
 # --------------------------------------------------------------------------

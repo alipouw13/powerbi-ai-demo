@@ -602,15 +602,66 @@ class FixProposal:
     fix_target: str
     rationale: str
     automatable: bool
+    # The literal text a human is asked to approve. Empty when the fix is not
+    # an instruction change, because those cannot be applied by appending a
+    # sentence and pretending the job is done.
+    proposed_instruction: str = ""
+    instruction_target: str = ""
+
+    @property
+    def auto_appliable(self) -> bool:
+        """Can an approved fix be applied by the remediation notebook.
+
+        Only additive instruction text qualifies. Everything else needs a
+        person to open the model and think.
+        """
+        return bool(self.proposed_instruction) and self.tier == 1
 
 
-# Tier 1 is additive metadata only, and the bot may open a pull request.
-# Tier 2 changes semantics or numbers, so the bot opens an issue and a human
-# writes the fix.
+# Where an instruction actually takes effect. This distinction is the whole
+# reason the remediation notebook is not a one-liner.
+#
+# Agent-level instructions are NOT passed to the DAX generation step for a
+# semantic model source. They shape the reply after the query has run. So a
+# wrong number, a wrong filter, or an invented value can only be fixed in the
+# model. Writing it in the agent box feels productive and does nothing.
+TARGET_SEMANTIC_MODEL = "semantic_model"  # Prep data for AI, changes the DAX
+TARGET_DATA_AGENT = "data_agent"  # response shape only
+
+# The literal sentences a human is asked to approve, per defect class. Kept
+# here rather than generated, so the text is reviewable in a pull request
+# rather than assembled at midnight by a scheduled job.
+INSTRUCTION_LIBRARY = {
+    "default_time_scope": (
+        "When a question does not state a time period, answer using all available "
+        "data from 1 January 2024 to 31 December 2025. Do not narrow to the most "
+        "recent day, month, quarter or year unless the user asks for it. If you do "
+        "apply a period, say so."
+    ),
+    "no_forecast": (
+        "This model contains historical data only, from 1 January 2024 to "
+        "31 December 2025. Never project, forecast or extrapolate beyond that range. "
+        "If asked about a future period, say the data does not cover it and stop."
+    ),
+    "closed_region_list": (
+        "The only valid regions are West, Central and East. If a user names any other "
+        "region, say it does not exist, list the three valid ones, and do not "
+        "substitute the closest match."
+    ),
+    "margin_ambiguity": (
+        "Profitability is ambiguous. Gross Margin is dollars and Gross Margin % is a "
+        "rate. Default to gross margin in dollars, and always state which one you used."
+    ),
+}
+
+
+# Tier 0 is infrastructure and changes nothing about the model.
+# Tier 1 is additive metadata only, and the bot may propose exact text.
+# Tier 2 changes semantics or numbers, so a human writes the fix.
 # Tier 3 is wording, or a verified answer, and is never automated at all.
 TIER_ACTION = {
     0: "no model change, investigate the run itself",
-    1: "bot opens a pull request, human merges",
+    1: "bot proposes exact text, human approves, notebook applies it",
     2: "bot opens an issue with evidence, human writes the fix",
     3: "human only, never automated",
 }
@@ -643,13 +694,20 @@ def route_defect(result: QuestionResult, expected: Expected) -> FixProposal:
     # A lost guardrail is the most serious outcome and it is invisible to the
     # score, because F01 to F03 sit outside the /15.
     if expected.probe_kind:
+        key = {
+            "F01": "no_forecast",
+            "F02": "margin_ambiguity",
+            "F03": "closed_region_list",
+        }.get(qid, "")
         return FixProposal(
             qid, classification, 1,
-            "semantic-model/ai-instructions.md",
-            "A guardrail probe stopped behaving. Restore the constraint that "
-            "tells the model it holds historical data only, that margin is "
-            "ambiguous, or which regions exist.",
+            "semantic model AI instructions, guardrail",
+            "A guardrail probe stopped behaving. Restore the constraint in the "
+            "model, not the agent box, because substituting a value or inventing "
+            "a projection happens when the query is built.",
             automatable=True,
+            proposed_instruction=INSTRUCTION_LIBRARY.get(key, ""),
+            instruction_target=TARGET_SEMANTIC_MODEL if key else "",
         )
 
     # The answer admits it narrowed the period on a question that set no
@@ -658,11 +716,13 @@ def route_defect(result: QuestionResult, expected: Expected) -> FixProposal:
     if classification != STABLE_PASS and looks_time_narrowed(answers):
         return FixProposal(
             qid, classification, 1,
-            "semantic-model/ai-instructions.md, default time scope",
+            "semantic model AI instructions, default time scope",
             "Silently narrowed to the most recent period when the question "
             "carried no time filter. Add an instruction that a question "
             "without a stated period covers all available data.",
             automatable=True,
+            proposed_instruction=INSTRUCTION_LIBRARY["default_time_scope"],
+            instruction_target=TARGET_SEMANTIC_MODEL,
         )
 
     if classification == FLAKE:
@@ -716,9 +776,21 @@ def route_defect(result: QuestionResult, expected: Expected) -> FixProposal:
 
 
 def propose_fixes(
-    results: list[QuestionResult], expectations: dict[str, Expected]
+    results: list[QuestionResult],
+    expectations: dict[str, Expected],
+    applied_instructions: frozenset[str] = frozenset(),
 ) -> list[FixProposal]:
-    """Propose a fix for every defect. Proposals are not changes."""
+    """Propose a fix for every defect. Proposals are not changes.
+
+    `applied_instructions` is the set of instruction lines already present in
+    the model. If the router proposes one of those for a question that is
+    still failing, the fix has already been tried and did not work, so the
+    proposal is escalated to tier 2 instead of being offered again.
+
+    Without this the loop has a stuck state that looks like progress: it
+    proposes the same sentence every run, a human approves it every run, the
+    merge is idempotent so nothing changes, and the defect never closes.
+    """
     proposals = []
     for result in results:
         if not result.is_defect:
@@ -726,8 +798,66 @@ def propose_fixes(
         expected = expectations.get(result.question_id)
         if expected is None:
             continue
-        proposals.append(route_defect(result, expected))
+
+        proposal = route_defect(result, expected)
+
+        if proposal.proposed_instruction in applied_instructions:
+            proposal = FixProposal(
+                question_id=proposal.question_id,
+                classification=proposal.classification,
+                tier=2,
+                fix_target="already instructed, needs a different kind of fix",
+                rationale=(
+                    "The instruction this defect would propose is already in the "
+                    "model and the question is still failing. Adding it again "
+                    "changes nothing. The cause is not a missing instruction, so "
+                    "this needs a person to look at the measure, the metadata, or "
+                    "the question itself."
+                ),
+                automatable=False,
+            )
+
+        proposals.append(proposal)
     return proposals
+
+
+# --------------------------------------------------------------------------
+# Applying an approved instruction
+# --------------------------------------------------------------------------
+
+REMEDIATION_HEADING = "## Automated remediation"
+
+
+def merge_instruction(existing: str, instruction: str) -> tuple[str, bool]:
+    """Append an approved instruction under a stable heading.
+
+    Returns the new text and whether anything changed. Append only, and
+    idempotent: applying the same instruction twice is a no-op rather than a
+    duplicate paragraph. Nothing a human wrote is ever rewritten, which is the
+    difference between a remediation loop that is safe to leave running and
+    one that quietly edits the model out from under its authors.
+    """
+    existing = existing or ""
+    instruction = (instruction or "").strip()
+
+    if not instruction:
+        return existing, False
+    if instruction in existing:
+        return existing, False
+
+    if REMEDIATION_HEADING in existing:
+        return existing.rstrip() + "\n" + instruction + "\n", True
+
+    separator = "\n\n" if existing.strip() else ""
+    return (
+        existing.rstrip()
+        + separator
+        + REMEDIATION_HEADING
+        + "\n\n"
+        + "Added by the evaluation loop after a human approved each line.\n\n"
+        + instruction
+        + "\n"
+    ), True
 
 
 # --------------------------------------------------------------------------
