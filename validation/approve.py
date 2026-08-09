@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -29,8 +30,13 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
-CLUSTER_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
-KUSTO_DB = "EH_AgentEval"
+CLUSTER_URI = os.environ.get("FABRIC_KUSTO_URI", "").strip()
+KUSTO_DB = os.environ.get("FABRIC_KUSTO_DATABASE_NAME", "EH_AgentEval").strip()
+
+
+def require_configuration() -> None:
+    if not CLUSTER_URI:
+        raise SystemExit("missing required environment variable: FABRIC_KUSTO_URI")
 
 
 def token(resource: str) -> str:
@@ -193,6 +199,7 @@ def main() -> int:
                         help="print the Spark snippet to mirror into Delta")
     args = parser.parse_args()
 
+    require_configuration()
     if args.list or not args.question:
         return list_pending()
     if args.emit_delta:

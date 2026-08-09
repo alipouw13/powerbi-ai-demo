@@ -20,12 +20,12 @@ ROOT = Path(__file__).resolve().parent.parent
 VALIDATION = ROOT / "validation"
 NOTEBOOK_PATH = ROOT / "fabric" / "agent_eval.ipynb"
 
-KUSTO_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
+KUSTO_URI = ""
 KUSTO_DB = "EH_AgentEval"
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-DATA_AGENT_ID = "f025126c-ae31-4e51-86c4-a1bcb6949061"
-LAKEHOUSE_ID = "418bfccb-13c9-4331-8c2c-6beae88a9ce5"
+WORKSPACE_ID = ""
+DATA_AGENT_ID = ""
+LAKEHOUSE_ID = ""
 LAKEHOUSE_NAME = "LH_ContosoCoffee"
 
 
@@ -609,13 +609,6 @@ def build_notebook() -> dict:
             "microsoft": {
                 "language": "python",
                 "language_group": "synapse_pyspark",
-            },
-            "dependencies": {
-                "lakehouse": {
-                    "default_lakehouse": LAKEHOUSE_ID,
-                    "default_lakehouse_name": LAKEHOUSE_NAME,
-                    "default_lakehouse_workspace_id": WORKSPACE_ID,
-                }
             },
         },
         "nbformat": 4,

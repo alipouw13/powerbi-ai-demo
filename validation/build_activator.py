@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 import subprocess
 import sys
 import time
@@ -25,11 +26,17 @@ import urllib.error
 import urllib.request
 import uuid
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-KQL_DATABASE_ID = "044af2c9-068d-4728-bf78-f83b6aa1c238"
-REMEDIATION_NOTEBOOK_ID = "d3863cec-220f-4de1-beb4-0331bdd6c974"
+WORKSPACE_ID = os.environ.get("FABRIC_WORKSPACE_ID", "").strip()
+KQL_DATABASE_ID = os.environ.get("FABRIC_KQL_DATABASE_ID", "").strip()
+REMEDIATION_NOTEBOOK_ID = os.environ.get(
+    "FABRIC_REMEDIATION_NOTEBOOK_ID", ""
+).strip()
 ACTIVATOR_NAME = "Agent Accuracy Alerts"
-RECIPIENTS = ["admin@MngEnvMCAP257273.onmicrosoft.com"]
+RECIPIENTS = [
+    recipient.strip()
+    for recipient in os.environ.get("AGENT_ACCURACY_RECIPIENTS", "").split(",")
+    if recipient.strip()
+]
 
 TEMPLATE_VERSION = "1.2.4"
 FABRIC_API = "https://api.fabric.microsoft.com"
@@ -54,6 +61,23 @@ eval_approvals
 | project approved_ts, approval_id, question_id, decision, approved_by,
           instruction_target, proposed_instruction
 | order by approved_ts asc"""
+
+
+def require_configuration() -> None:
+    missing = [
+        name
+        for name, value in (
+            ("FABRIC_WORKSPACE_ID", WORKSPACE_ID),
+            ("FABRIC_KQL_DATABASE_ID", KQL_DATABASE_ID),
+            ("FABRIC_REMEDIATION_NOTEBOOK_ID", REMEDIATION_NOTEBOOK_ID),
+            ("AGENT_ACCURACY_RECIPIENTS", RECIPIENTS),
+        )
+        if not value
+    ]
+    if missing:
+        raise SystemExit(
+            "missing required environment variable(s): " + ", ".join(missing)
+        )
 
 
 def stringify(template: dict) -> str:
@@ -539,6 +563,7 @@ def main() -> int:
     parser.add_argument("--print-only", action="store_true")
     args = parser.parse_args()
 
+    require_configuration()
     entities = build_entities()
     encoded = base64.b64encode(
         json.dumps(entities, indent=2).encode("utf-8")

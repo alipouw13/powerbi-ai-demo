@@ -38,6 +38,22 @@ Run the tests with:
 python -m unittest discover -s validation -p "test_*.py"
 ```
 
+Deployment-specific values are never committed to the builders or generated
+notebooks. Set them only in the shell that deploys the Fabric items:
+
+| Environment variable | Used by |
+| --- | --- |
+| `FABRIC_WORKSPACE_ID` | Activator and dashboard builders |
+| `FABRIC_KQL_DATABASE_ID` | Activator and dashboard builders |
+| `FABRIC_REMEDIATION_NOTEBOOK_ID` | Activator builder |
+| `FABRIC_KUSTO_URI` | Dashboard builder and approval CLI |
+| `FABRIC_KUSTO_DATABASE_NAME` | Approval CLI (optional; defaults to `EH_AgentEval`) |
+| `AGENT_ACCURACY_RECIPIENTS` | Activator builder; comma-separated email addresses |
+
+The generated notebooks intentionally contain empty workspace, data-agent,
+Kusto URI, and lakehouse bindings. Supply those values through the Fabric
+parameters cell and attach the target lakehouse after import or deployment.
+
 ### The loop, end to end
 
 ```

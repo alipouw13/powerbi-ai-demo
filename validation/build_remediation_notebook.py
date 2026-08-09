@@ -449,13 +449,6 @@ def build_notebook() -> dict:
                 "language": "python",
                 "language_group": "synapse_pyspark",
             },
-            "dependencies": {
-                "lakehouse": {
-                    "default_lakehouse": LAKEHOUSE_ID,
-                    "default_lakehouse_name": LAKEHOUSE_NAME,
-                    "default_lakehouse_workspace_id": WORKSPACE_ID,
-                }
-            },
         },
         "nbformat": 4,
         "nbformat_minor": 5,

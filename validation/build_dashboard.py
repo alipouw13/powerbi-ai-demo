@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import subprocess
 import sys
 import time
@@ -24,15 +25,31 @@ import urllib.error
 import urllib.request
 import uuid
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-KQL_DATABASE_ID = "044af2c9-068d-4728-bf78-f83b6aa1c238"
+WORKSPACE_ID = os.environ.get("FABRIC_WORKSPACE_ID", "").strip()
+KQL_DATABASE_ID = os.environ.get("FABRIC_KQL_DATABASE_ID", "").strip()
 KQL_DATABASE_NAME = "EH_AgentEval"
-CLUSTER_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
+CLUSTER_URI = os.environ.get("FABRIC_KUSTO_URI", "").strip()
 DASHBOARD_NAME = "Agent Accuracy"
 FABRIC_API = "https://api.fabric.microsoft.com"
 
 DATA_SOURCE_ID = "ds-agent-eval"
 PAGE_ID = "page-overview"
+
+
+def require_configuration() -> None:
+    missing = [
+        name
+        for name, value in (
+            ("FABRIC_WORKSPACE_ID", WORKSPACE_ID),
+            ("FABRIC_KQL_DATABASE_ID", KQL_DATABASE_ID),
+            ("FABRIC_KUSTO_URI", CLUSTER_URI),
+        )
+        if not value
+    ]
+    if missing:
+        raise SystemExit(
+            "missing required environment variable(s): " + ", ".join(missing)
+        )
 
 
 def tile(title: str, query: str, x: int, y: int, w: int, h: int, viz: dict) -> dict:
@@ -203,6 +220,7 @@ def find_existing() -> str | None:
 
 
 def main() -> int:
+    require_configuration()
     if "--print-only" in sys.argv:
         print(json.dumps(build_definition(), indent=2))
         return 0

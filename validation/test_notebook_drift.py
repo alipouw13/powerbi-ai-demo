@@ -68,10 +68,17 @@ class TestNotebookStructure(unittest.TestCase):
         ]
         self.assertEqual(len(tagged), 1, "exactly one parameters cell expected")
 
-    def test_default_lakehouse_is_attached(self) -> None:
-        lakehouse = self.nb["metadata"]["dependencies"]["lakehouse"]
-        self.assertTrue(lakehouse["default_lakehouse"])
-        self.assertTrue(lakehouse["default_lakehouse_workspace_id"])
+    def test_committed_notebook_has_no_deployment_binding(self) -> None:
+        self.assertNotIn("dependencies", self.nb["metadata"])
+        params = "".join(
+            "".join(c["source"]) for c in self.code_cells
+            if "parameters" in c.get("metadata", {}).get("tags", [])
+        )
+        namespace: dict = {}
+        exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
+        self.assertEqual(namespace["WORKSPACE_ID"], "")
+        self.assertEqual(namespace["DATA_AGENT_ID"], "")
+        self.assertEqual(namespace["KUSTO_URI"], "")
 
     def test_repeat_defaults_above_one(self) -> None:
         # A repeat of 1 cannot distinguish wrong from ambiguous, which is the
@@ -138,6 +145,18 @@ class TestRemediationNotebook(unittest.TestCase):
                     ast.parse(source)
                 except SyntaxError as exc:
                     self.fail(f"code cell {index} does not parse: {exc}")
+
+    def test_committed_notebook_has_no_deployment_binding(self) -> None:
+        self.assertNotIn("dependencies", self.nb["metadata"])
+        params = "".join(
+            "".join(c["source"]) for c in self.code_cells
+            if "parameters" in c.get("metadata", {}).get("tags", [])
+        )
+        namespace: dict = {}
+        exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
+        self.assertEqual(namespace["WORKSPACE_ID"], "")
+        self.assertEqual(namespace["DATA_AGENT_ID"], "")
+        self.assertEqual(namespace["KUSTO_URI"], "")
 
     def test_defaults_to_dry_run(self) -> None:
         # A notebook that writes to a governed semantic model must not do so
