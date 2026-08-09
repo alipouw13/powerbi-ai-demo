@@ -5,6 +5,10 @@ is a demo that proved nothing.
 
 Get the expected values with `python validation/ground_truth.py`.
 
+Filling this in by hand is the intended process for a demo. If you need the loop running
+continuously, see [`automation-spec.md`](automation-spec.md), which specifies the
+scheduled version that generates these results instead of having a human type them.
+
 ---
 
 ## Passes
