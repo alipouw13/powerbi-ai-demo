@@ -121,6 +121,29 @@ result surprises you, run it again before concluding anything.
 
 ---
 
+## If you wanted to automate this
+
+Everything above is manual on purpose. A human asks the questions, grades them by eye, and
+types the result into the scorecard. Nothing is scheduled, nothing calls an API, and
+nothing alerts anyone. The only trigger is a person deciding to run a pass.
+
+That is right for a demo and wrong for production. If you need this running continuously,
+[`validation/automation-spec.md`](../validation/automation-spec.md) specifies the version
+that does: a scheduled notebook querying the agent over the MCP endpoint (preview),
+repetition-based flake detection, results in Delta, an Activator alert to Teams, a human
+confirmation gate, and guarded remediation by pull request.
+
+Two constraints from that spec are worth knowing even if you never build it:
+
+- **Repeat every question.** A human asks each question once. That cannot distinguish a
+  model that is wrong from a model that is ambiguous, and the second is worse in front of
+  an audience because you cannot brief around it.
+- **Never let automation write verified answers.** A loop optimising a `/ 15` score will
+  pin its way to 15/15 over a model that is still wrong. A verified answer is a patch, not
+  a fix, and that rule has to hold hardest when a machine is applying it.
+
+---
+
 ## Repo checks before you present
 
 Run through the checklist at the bottom of
