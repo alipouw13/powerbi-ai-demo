@@ -121,23 +121,36 @@ result surprises you, run it again before concluding anything.
 
 ---
 
-## If you wanted to automate this
+## Running it automatically
 
-Everything above is manual on purpose. A human asks the questions, grades them by eye, and
-types the result into the scorecard. Nothing is scheduled, nothing calls an API, and
-nothing alerts anyone. The only trigger is a person deciding to run a pass.
+Everything above is the manual pass, and it is still the right thing to do the first time
+because watching the answers is how you learn what the model is doing.
 
-That is right for a demo and wrong for production. If you need this running continuously,
-[`validation/automation-spec.md`](../validation/automation-spec.md) specifies the version
-that does: a scheduled notebook querying the agent over the MCP endpoint (preview),
-repetition-based flake detection, results in Delta, an Activator alert to Teams, a human
-confirmation gate, and guarded remediation by pull request.
+The repo also automates it. [`validation/automation-spec.md`](../validation/automation-spec.md)
+covers the design; the short version is a Fabric notebook that asks every question three
+times, grades against ground truth, writes `eval_runs`, `eval_results` and `eval_defects`,
+publishes a summary to an Eventhouse, and lets an Activator raise a Teams alert. It
+proposes fixes and never applies them.
 
-Two constraints from that spec are worth knowing even if you never build it:
+Two things it caught immediately that the manual pass cannot:
 
-- **Repeat every question.** A human asks each question once. That cannot distinguish a
-  model that is wrong from a model that is ambiguous, and the second is worse in front of
-  an audience because you cannot brief around it.
+- **Nondeterminism.** Six of the eighteen questions answered correctly on some attempts
+  and not others. A manual pass asks each question once, so it would have scored the same
+  model 14 or 15 out of 15. A question that is right three times in five is worse in front
+  of an audience than one that is consistently wrong, because you cannot brief around it.
+- **Silent time narrowing.** Q10, Q11 and Q12 carry no time filter, and the agent
+  sometimes answered for the most recent period only. The numbers looked plausible and
+  were roughly a tenth of the truth.
+
+Run the tests for the grading logic with:
+
+```bash
+python -m unittest discover -s validation -p "test_*.py"
+```
+
+Two rules from that spec are worth knowing even if you never run it:
+
+- **Repeat every question.** One sample cannot distinguish wrong from ambiguous.
 - **Never let automation write verified answers.** A loop optimising a `/ 15` score will
   pin its way to 15/15 over a model that is still wrong. A verified answer is a patch, not
   a fix, and that rule has to hold hardest when a machine is applying it.

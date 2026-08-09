@@ -5,9 +5,10 @@ is a demo that proved nothing.
 
 Get the expected values with `python validation/ground_truth.py`.
 
-Filling this in by hand is the intended process for a demo. If you need the loop running
-continuously, see [`automation-spec.md`](automation-spec.md), which specifies the
-scheduled version that generates these results instead of having a human type them.
+Filling this in by hand is the intended process for a demo, and it is how you learn what
+the model is doing. The repo also automates it: see
+[`automation-spec.md`](automation-spec.md) and the `agent_eval` notebook, which generate
+these results rather than having a human type them.
 
 ---
 

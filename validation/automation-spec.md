@@ -1,15 +1,50 @@
 # Spec: automated agent evaluation and guarded remediation
 
-**Status:** proposed, not built. Nothing in this repo implements it yet.
+**Status:** built and running. See [What was built](#0-what-was-built).
 **Scope:** pass D, the Fabric data agent. Extends to passes B and C where noted.
 
-Today the accuracy loop in [`docs/08-validate.md`](../docs/08-validate.md) is entirely
-manual. A human asks 15 questions, grades them by eye, and types the result into
-[`scorecard.md`](scorecard.md). That is deliberate for a demo, and it does not scale past
-one person running it once.
+Before this, the accuracy loop in [`docs/08-validate.md`](../docs/08-validate.md) was
+entirely manual. A human asked 15 questions, graded them by eye, and typed the result into
+[`scorecard.md`](scorecard.md). Nothing was scheduled, nothing called an API, and the only
+trigger was a person deciding to run a pass.
 
-This spec describes what a production version looks like: scheduled evaluation, drift
-detection, a human confirmation gate, and guarded remediation.
+This spec describes the production version, and the repo now implements it.
+
+---
+
+## 0. What was built
+
+| Artefact | Where | What it does |
+| --- | --- | --- |
+| [`eval_harness.py`](eval_harness.py) | repo | Pure grading, classification and routing logic. No Fabric imports, so all of it is unit tested on a laptop |
+| [`agent_client.py`](agent_client.py) | repo | Standard library MCP client for the data agent (preview) |
+| [`run_eval.py`](run_eval.py) | repo | Runs the loop from a laptop, for development and debugging |
+| [`build_eval_notebook.py`](build_eval_notebook.py) | repo | Generates the notebook so the embedded copy cannot drift |
+| [`build_activator.py`](build_activator.py) | repo | Creates the Activator through the Fabric REST API |
+| [`test_eval_harness.py`](test_eval_harness.py) | repo | 63 tests, including replays of real agent answers |
+| [`test_notebook_drift.py`](test_notebook_drift.py) | repo | 23 tests, including executing the notebook's embedded code |
+| `agent_eval` notebook | Fabric | Runs the bank, grades, writes Delta, publishes to Eventhouse |
+| `EH_AgentEval` eventhouse | Fabric | The event spine Activator can watch |
+| `Agent Accuracy Alerts` | Fabric | Fires a Teams message on a high severity run |
+
+Run the tests with:
+
+```bash
+python -m unittest discover -s validation -p "test_*.py"
+```
+
+### Two decisions worth knowing
+
+**No `%pip install` in the notebook.** The first version installed the `mcp` package. That
+pulls new builds of pydantic, anyio, typing-extensions and jsonschema over the ones the
+Spark runtime ships, and the scheduled job died in twelve seconds. The MCP wire protocol
+is a handful of JSON-RPC calls, so `agent_client.py` speaks it with `urllib` and the
+notebook has no dependencies at all.
+
+**Activator cannot watch a Delta table.** Its supported sources are Eventstream, KQL,
+Real-Time Hub and Digital Twin Builder. So the notebook writes the history to Delta, which
+is what you query, and publishes one summary row per run to an Eventhouse, which is what
+Activator watches.
 
 ---
 
@@ -268,7 +303,42 @@ Q03 is answered, and a per-question re-run will not see it.
 
 ---
 
-## 5. What this does not solve
+## 5. What it found on its first real runs
+
+Worth recording, because it is the argument for the whole design.
+
+**Six questions were nondeterministic.** Q01, Q03, Q10, Q11, Q12 and F03 each answered
+correctly on some attempts and not others. A manual pass asks every question once, so it
+would have scored this model 14 or 15 out of 15 and moved on.
+
+**Three of them share one defect.** Q10, Q11 and Q12 carry no time filter, so the expected
+answer covers all available data. The agent sometimes silently answered for the most
+recent period instead. On one run it reported December 2025 figures for Q11 as though they
+were the whole picture, and the three category totals summed to exactly the December total.
+That is a missing default rather than a broken measure, so it routes to tier 1.
+
+**One "failure" was the agent falling over, not the model being wrong.** An attempt
+returned "The Data Agent run failed before producing a result." Counted as a wrong answer,
+it turned a healthy question into a false flake. Attempts that error are now excluded
+before the model is judged, and a separate alert fires if the error rate goes above ten
+percent.
+
+**Two of the first three defects the grader reported were the grader's fault.** F02 and
+F03 were graded Wrong on answers that were correct. Generic refusal detection is not
+precise enough for the probes, because a good refusal often contains no refusal language:
+"Northwest is not a valid region. The valid regions are Central, East and West" is the
+perfect answer and contains no "cannot" anywhere. Acceptance is now driven by per-probe
+rules written from the good outcome column of the question bank, and every one of those
+real replies is now a regression test.
+
+The general lesson is the one that matters when anybody builds this for real. **Validate
+the grader against real answers before you trust a single score it produces.** A grader
+that cries wolf on a correct answer is worse than no grader, because people stop reading
+the alerts.
+
+---
+
+## 6. What this does not solve
 
 Stated plainly, because a spec that claims to close the loop entirely is selling something.
 
@@ -288,27 +358,33 @@ That last point is the one to raise with anyone who wants to lift this into prod
 
 ---
 
-## 6. Build order
+## 7. Build order
 
-Each step is useful on its own. Stop wherever the value runs out.
+Each step is useful on its own. The first five are built.
 
-| Step | Delivers | Effort |
+| Step | Delivers | State |
 | --- | --- | --- |
-| 1 | Eval notebook, results to `eval_runs` and `eval_results`, no alerting | Small. Already replaces the manual pass |
-| 2 | `N` repetitions and flake classification | Small, and the highest value per hour spent |
-| 3 | Eval report and Activator alert to Teams | Medium |
-| 4 | Confirmation card with the three responses | Medium |
-| 5 | Tier 2 issue creation with diagnosis | Medium |
-| 6 | Tier 1 PR generation | Large, and the least valuable. Do it last |
+| 1 | Eval notebook, results to `eval_runs` and `eval_results` | Built |
+| 2 | Repetitions and flake classification | Built, and the highest value per hour spent |
+| 3 | Eventhouse publish and Activator alert to Teams | Built |
+| 4 | Errored attempts separated from model defects | Built |
+| 5 | Defect classification and tiered fix proposals in `eval_defects` | Built |
+| 6 | Confirmation card with the three responses | Not built |
+| 7 | Tier 2 issue creation with diagnosis | Not built |
+| 8 | Tier 1 pull request generation | Not built, and the least valuable. Do it last |
 
-Steps 1 and 2 remove the manual pass and catch nondeterminism the current process cannot
-see, because a human runs each question once. Step 6 is the headline feature and the
-smallest real gain, because tier 1 fixes are the ones a human already writes in about two
-minutes.
+Steps 1 and 2 removed the manual pass and immediately caught nondeterminism the old
+process could not see, because a human runs each question once. Step 8 is the headline
+feature and the smallest real gain, because tier 1 fixes are the ones a human already
+writes in about two minutes.
+
+The gap between step 5 and step 6 is the human gate. Today the notebook writes the
+proposal and Activator raises the alert; a person reads `eval_defects`, confirms, and
+applies the fix. That is the correct place to stop until somebody actually needs the rest.
 
 ---
 
-## 7. Related
+## 8. Related
 
 - [`docs/08-validate.md`](../docs/08-validate.md), the manual loop this automates
 - [`question-bank.md`](question-bank.md), the fixed 15 plus 3
