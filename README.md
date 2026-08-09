@@ -165,11 +165,13 @@ Three rules that make the loop honest:
 2. Fix the model, not the prompt. Descriptions, summarisation, names, AI instructions.
 3. A verified answer is a patch, not a fix. It solves one phrasing, not the model.
 
-This loop is manual by design. Nothing is scheduled, nothing calls an API, and the only
-trigger is a person deciding to run a pass.
-[`validation/automation-spec.md`](validation/automation-spec.md) specifies what a
-continuously running version looks like, and why the two rules above get harder rather
-than easier once a machine is applying them.
+This loop is manual by design, and the repo also automates it. The notebook in
+[`fabric/agent_eval.ipynb`](fabric/agent_eval.ipynb) asks every question three times,
+grades against ground truth, and raises an Activator alert on a regression. It proposes
+fixes and never applies them.
+[`validation/automation-spec.md`](validation/automation-spec.md) explains the design, what
+it found on its first run, and why the two rules above get harder rather than easier once
+a machine is applying them.
 
 ---
 
@@ -376,9 +378,9 @@ resource layout.
 .github/prompts/     copy-paste prompts, one section per phase from 1 onward, plus the business user prompt library
 data/                synthetic CSVs and the seeded generator that made them
 diagram/             the architecture diagram and the generator that produces it
-fabric/              notebook to land the CSVs as Lakehouse tables
+fabric/              notebooks: land the CSVs, and evaluate the data agent
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
-validation/          question bank, ground truth script, scorecard, automation spec
+validation/          question bank, ground truth, scorecard, eval harness and tests
 docs/                one short guide per phase
 SPEC.md              the demo contract: phases, personas, success criteria
 ```
