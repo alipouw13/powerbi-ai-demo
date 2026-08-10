@@ -53,8 +53,19 @@ from config import (  # noqa: E402
 
 DASHBOARD_NAME = "Agent Accuracy"
 
-# Bump this if the portal reports "Missing migration for dashboard version N".
-SCHEMA_VERSION = "78"
+# The version to declare, and it is not the one the portal reports.
+#
+# The client migrates a dashboard forward from the version in the file to the
+# version it currently runs. So the file has to declare a version the client
+# has a migration *from*. Declaring the target version fails with "Missing
+# migration for dashboard version 78. Required version: 78 Received version:
+# 78", which reads like a version mismatch and is not one.
+#
+# 52 is the version in Microsoft's own REST API example for creating a KQL
+# dashboard programmatically, so it is the one with a known migration path.
+# Fabric stores whatever it is given without normalising it, which is why this
+# has to be right rather than merely plausible.
+SCHEMA_VERSION = "52"
 
 NAMESPACE = uuid.UUID("6f1d3f5a-0c7f-4f2e-9c8a-5b1e7d2a4c30")
 
@@ -139,7 +150,16 @@ APPLIED = """eval_remediations
 
 
 def line_options(x_column: str, y_columns: list[str]) -> dict:
-    """visualOptions for a time series line chart."""
+    """visualOptions for a time series line chart.
+
+    Unused by default. Every tile ships as a table, because a table renders
+    from any result shape and a chart does not: a chart carries column
+    bindings that have to survive the client's schema migration, and a tile
+    that fails to render takes the whole dashboard with it.
+
+    Add charts from the portal once the dashboard loads, or wire this in and
+    re-verify. Do not assume it works.
+    """
     return {
         "multipleYAxes": {
             "base": {
@@ -167,12 +187,9 @@ def line_options(x_column: str, y_columns: list[str]) -> dict:
 
 # title, query, visualType, visualOptions, x, y, width, height
 TILE_SPECS = [
-    ("Score over time", SCORE_TREND, "line",
-     line_options("run_ts", ["score", "max_score"]), 0, 0, 9, 5),
+    ("Score over time", SCORE_TREND, "table", {}, 0, 0, 9, 5),
     ("Latest run", LATEST_STATE, "table", {}, 9, 0, 9, 5),
-    ("Instability over time", FLAKE_HISTORY, "line",
-     line_options("run_ts", ["flake_count", "failure_count", "guardrails_lost_count"]),
-     0, 5, 9, 5),
+    ("Instability over time", FLAKE_HISTORY, "table", {}, 0, 5, 9, 5),
     ("Alerts raised", OPEN_ALERTS, "table", {}, 9, 5, 9, 5),
     ("Remediation queue, approve or reject each line", REMEDIATION_QUEUE, "table", {},
      0, 10, 18, 7),

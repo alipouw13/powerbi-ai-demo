@@ -29,10 +29,20 @@ class TestDefinitionValidates(unittest.TestCase):
         self.assertEqual(dash.validate(self.definition), [])
 
     def test_schema_version_is_set(self) -> None:
-        # "Missing migration for dashboard version 62. Required version: 78"
-        # was a real load failure caused by leaving this at the default.
-        self.assertTrue(self.definition["schema_version"])
-        self.assertGreaterEqual(int(self.definition["schema_version"]), 78)
+        # "Missing migration for dashboard version 78. Required version: 78
+        # Received version: 78" was a real load failure caused by declaring
+        # the target version. The client migrates forward from the version in
+        # the file, so the file must name a version it has a migration from.
+        self.assertEqual(self.definition["schema_version"], "52")
+
+    def test_every_tile_is_a_table(self) -> None:
+        # A chart carries column bindings that have to survive the client's
+        # schema migration, and a tile that fails to render takes the whole
+        # dashboard with it. Tables render from any result shape.
+        for tile in self.definition["tiles"]:
+            with self.subTest(tile=tile["title"]):
+                self.assertEqual(tile["visualType"], "table")
+                self.assertEqual(tile["visualOptions"], {})
 
     def test_every_id_is_a_real_uuid(self) -> None:
         # Readable ids like "ds-agent-eval" are rejected at load time with
