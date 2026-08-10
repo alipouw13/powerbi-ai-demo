@@ -24,6 +24,9 @@ This spec describes the production version, and the repo now implements it.
 | [`build_remediation_notebook.py`](build_remediation_notebook.py) | repo | Generates the remediation notebook |
 | [`build_activator.py`](build_activator.py) | repo | Creates both Activator rules through the Fabric REST API |
 | [`build_dashboard.py`](build_dashboard.py) | repo | Creates the real-time dashboard, and runs the load endpoint's validation rules first |
+| [`build_schedule.py`](build_schedule.py) | repo | Puts the eval notebook on a daily schedule |
+| [`file_issues.py`](file_issues.py) | repo | Files tier 2 defects as GitHub issues, with evidence |
+| [`approval-by-email.md`](approval-by-email.md) | repo | The Outlook approval card, and the Teams swap |
 | [`test_dashboard.py`](test_dashboard.py) | repo | Asserts the dashboard definition would load, without opening a browser |
 | [`test_eval_harness.py`](test_eval_harness.py) | repo | Grading, routing and merge tests, including replays of real agent answers |
 | [`test_notebook_drift.py`](test_notebook_drift.py) | repo | Regenerates both notebooks and executes their embedded code |
@@ -494,40 +497,39 @@ Each step is useful on its own. The first eight are built and running.
 | --- | --- | --- |
 | 1 | Eval notebook, results to `eval_runs` and `eval_results` | Built |
 | 2 | Repetitions and flake classification | Built, highest value per hour spent |
-| 3 | Eventhouse publish and Activator alert to Teams | Built |
+| 3 | Eventhouse publish and Activator alert | Built |
 | 4 | Errored attempts separated from model defects | Built |
 | 5 | Defect classification and tiered proposals with literal text | Built |
 | 6 | Real-time dashboard with the remediation queue | Built |
 | 7 | Approval gate, and Activator applying an approved instruction | Built |
 | 8 | Escalation when a proposed fix has already been tried | Built |
+| A | One approval store, open work derived not stored | Built |
+| B | Daily schedule on the eval notebook | Built |
+| C | Email alerts, and the Outlook approval card specified | Built, flow not wired |
+| D | Auto verification of applied remediations | Built |
+| E | Tier 2 issues with per-attempt evidence | Built |
 
-### What is left, in the order worth doing it
+### What is genuinely left
 
-| Next | Delivers | Why it is next | Size |
-| --- | --- | --- | --- |
-| A | Single source of truth for approvals | The Delta and eventhouse copies are reconciled by hand today. It is the weakest joint and everything else sits on top of it | Small |
-| B | Schedule the eval notebook | Nothing is scheduled yet. Every run so far was triggered by hand, so there is no drift detection, which was the point | Small |
-| C | Approve from a Teams card | Removes the command line from the human step. Activator custom action to a Power Automate flow, card writes the same approval row | Medium |
-| D | Verification closes the loop automatically | Today `verified` is always false. A run that sees a remediated question reach stable pass should set it and close the defect | Medium |
-| E | Tier 2 issue creation with evidence | Files the defects nobody can fix automatically, with the generated DAX attached | Medium |
+**The Power Automate flow.** [`approval-by-email.md`](approval-by-email.md) specifies it
+exactly, including the queries and the card, but it has to be created in Power Automate by
+a person. Everything it talks to already exists and is tested.
 
-Do A and B before anything else. B in particular: a regression detector that
-only runs when somebody remembers to run it is not a regression detector, and
-every finding so far came from runs triggered by hand.
-
-C is the visible one and the least urgent. The approval decision is already
-durable, auditable and automated once made; C only changes where the human
-clicks.
+**Nothing else is designed and unbuilt.** The next thing worth doing is running it for a
+few weeks and seeing which of the assumptions here turn out to be wrong.
 
 ### Deliberately not doing
 
-**Automatic composition of new instruction text.** The instruction library is
-a fixed set of lines written by people, and the loop chooses between them from
-evidence. Letting a model write its own remediation text removes the one part
-of this design a reviewer can actually check.
+**Automatic composition of new instruction text.** The instruction library is a fixed set
+of lines written by people, and the loop chooses between them from evidence. Letting a
+model write its own remediation text removes the one part of this design a reviewer can
+actually check.
 
-**Automated tier 2 fixes.** Anything that changes a number needs a person to
-open the model and think.
+**Automated tier 2 fixes.** Anything that changes a number needs a person to open the
+model and think.
+
+**Batch approval.** One decision per sentence. An "approve all" button over a list of
+model changes is how a governed model gets edited by somebody who read the first line.
 
 ---
 
@@ -543,9 +545,13 @@ python -m unittest discover -s validation -p "test_*.py"
 python validation/ground_truth.py
 ```
 
-136 tests should pass, and the ground truth should print `$412,918.50` for Q01.
+146 tests should pass, and the ground truth should print `$412,918.50` for Q01.
 If the tests pass but a number has moved, the data generator has changed and
 every figure in `docs/` is now wrong.
+
+These also check things that used to need a browser and a Spark session:
+the dashboard definition would load, both notebooks match their generators,
+and the embedded code compiles and grades correctly.
 
 ### In the workspace, in this order
 
@@ -553,39 +559,60 @@ every figure in `docs/` is now wrong.
 | --- | --- | --- | --- |
 | 1 | The dashboard opens | `Agent Accuracy` | Seven tiles render. No "Missing migration" modal |
 | 2 | The remediation queue has rows | Same, middle tile | Each failing question with the exact sentence that would fix it |
-| 3 | The eval notebook runs clean | `agent_eval` | Around nine minutes, ends with a score and a written run |
-| 4 | The score history is growing | `eval_runs` | One row per run, `previous_score` populated after the first |
-| 5 | Both activator rules are on | `Agent Accuracy Alerts` | Two rules, both started |
-| 6 | The alert actually arrives | Teams | A message naming the questions that regressed |
-| 7 | The queue matches the last run | Dashboard against `eval_defects` | Same question ids |
+| 3 | The schedule exists and is on | `python validation/build_schedule.py --list` | Enabled, every 1440 minutes |
+| 4 | The eval notebook runs clean | `agent_eval` | Around nine minutes, ends with a score and a written run |
+| 5 | The score history is growing | `eval_runs` | One row per run, `previous_score` populated after the first |
+| 6 | Both activator rules are on | `Agent Accuracy Alerts` | Two rules, both started |
+| 7 | The alert actually arrives | Outlook | An email naming the questions that regressed |
+| 8 | The queue matches the last run | `python validation/approve.py --list` | Same question ids as `eval_defects` |
 
 ### The one that proves the loop, end to end
 
 ```bash
 python validation/approve.py --list
 python validation/approve.py --question <id> --by you@example.com
+python validation/approve.py --open
 ```
 
 Then watch, without touching anything:
 
 1. Within a minute, `agent_remediate` starts on its own. Check the notebook's
    run history.
-2. It finishes and `eval_remediations` gains a row with `persisted = true`.
-3. The instruction is in the model, under `## Automated remediation`.
-4. Run `agent_eval` again and compare the score to `previous_score`.
+2. It finishes, and `eval_remediations` gains a row with `persisted = true`.
+3. `approve.py --open` now returns nothing, because the approval is closed by
+   the remediation rather than by a flag somebody set.
+4. The instruction is in the model, under `## Automated remediation`.
+5. Run `agent_eval` again. If the question reaches stable pass, the same run
+   marks the remediation `verified = true`.
 
 If step 1 does not happen, the approval reached the eventhouse but the rule did
 not fire. If step 2 says `persisted = false`, the run could not write to the
 model, and the identity it ran as is named in the error.
 
+### Tier 2
+
+```bash
+python validation/file_issues.py --dry-run
+```
+
+Prints the issues it would file, with the grades and the answers the agent
+actually gave. Drop `--dry-run` to file them.
+
 ### What a healthy failure looks like
 
-Two of these are features, not faults, and it is worth recognising them:
+Four of these are features, not faults, and it is worth recognising them:
 
 - `approve.py` refusing a tier 2 defect. There is nothing safe to apply.
 - A defect escalating to tier 2 with "the instruction is already in the model
   and the question is still failing". The loop is admitting its remedy did not
   work, which is the behaviour you want.
+- The remediation notebook refusing with "the model changed while this run was
+  preparing its edit". Two changes overlapped and it declined to overwrite one
+  with the other. Re-run it; the approval is still open.
+- The remediation notebook refusing with "the write did not reach the model".
+  The content read back looked right but the server side `lastUpdate` did not
+  move, so it was a silent no-op and is reported as a failure rather than a
+  success.
 
 ---
 
