@@ -651,6 +651,7 @@ Four of these are features, not faults, and it is worth recognising them:
 
 ## 9. Related
 
+- [`approval-by-email.md`](approval-by-email.md), the Outlook approval card
 - [`docs/08-validate.md`](../docs/08-validate.md), the manual loop this automates
 - [`question-bank.md`](question-bank.md), the fixed 15 plus 3
 - [`scorecard.md`](scorecard.md), the manual artefact `eval_runs` replaces
