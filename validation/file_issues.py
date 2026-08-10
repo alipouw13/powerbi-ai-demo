@@ -47,7 +47,7 @@ def token(resource: str) -> str:
     result = subprocess.run(
         ["az", "account", "get-access-token", "--resource", resource,
          "--query", "accessToken", "-o", "tsv"],
-        capture_output=True, text=True, shell=True, check=True,
+        capture_output=True, text=True, check=True,
     )
     return result.stdout.strip()
 
