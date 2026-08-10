@@ -24,15 +24,21 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-KQL_DATABASE_ID = "044af2c9-068d-4728-bf78-f83b6aa1c238"
-REMEDIATION_NOTEBOOK_ID = "d3863cec-220f-4de1-beb4-0331bdd6c974"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from config import (  # noqa: E402
+    FABRIC_API,
+    KQL_DATABASE_ID,
+    RECIPIENTS,
+    REMEDIATION_NOTEBOOK_ID,
+    WORKSPACE_ID,
+    require,
+)
+
 ACTIVATOR_NAME = "Agent Accuracy Alerts"
-RECIPIENTS = ["admin@MngEnvMCAP257273.onmicrosoft.com"]
-
 TEMPLATE_VERSION = "1.2.4"
-FABRIC_API = "https://api.fabric.microsoft.com"
 
 # Return every run and let the rule decide. The skill guidance is explicit
 # that the KQL query is the data source, not the rule engine.
@@ -575,6 +581,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--print-only", action="store_true")
     args = parser.parse_args()
+
+    require(
+        "FABRIC_WORKSPACE_ID",
+        "FABRIC_KQL_DATABASE_ID",
+        "FABRIC_REMEDIATION_NOTEBOOK_ID",
+        "AGENT_ACCURACY_RECIPIENTS",
+    )
 
     entities = build_entities()
     encoded = base64.b64encode(

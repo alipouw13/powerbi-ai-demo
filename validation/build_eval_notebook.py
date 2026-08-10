@@ -20,13 +20,18 @@ ROOT = Path(__file__).resolve().parent.parent
 VALIDATION = ROOT / "validation"
 NOTEBOOK_PATH = ROOT / "fabric" / "agent_eval.ipynb"
 
-KUSTO_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
-KUSTO_DB = "EH_AgentEval"
+# The committed notebook carries no deployment binding. These stay empty in
+# source control and are supplied when the notebook is deployed, either as
+# notebook parameters or by attaching a lakehouse in the workspace. A notebook
+# in a repo that already points at somebody's workspace is a notebook that
+# runs against it by accident.
+WORKSPACE_ID = ""
+DATA_AGENT_ID = ""
+LAKEHOUSE_ID = ""
+KUSTO_URI = ""
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-DATA_AGENT_ID = "f025126c-ae31-4e51-86c4-a1bcb6949061"
-LAKEHOUSE_ID = "418bfccb-13c9-4331-8c2c-6beae88a9ce5"
 LAKEHOUSE_NAME = "LH_ContosoCoffee"
+KUSTO_DB = "EH_AgentEval"
 
 
 def strip_module_docstring(source: str) -> str:
@@ -734,13 +739,10 @@ def build_notebook() -> dict:
                 "language": "python",
                 "language_group": "synapse_pyspark",
             },
-            "dependencies": {
-                "lakehouse": {
-                    "default_lakehouse": LAKEHOUSE_ID,
-                    "default_lakehouse_name": LAKEHOUSE_NAME,
-                    "default_lakehouse_workspace_id": WORKSPACE_ID,
-                }
-            },
+            # No `dependencies` block. Attaching a lakehouse here would commit
+            # a workspace and lakehouse id into the repo, and the notebook
+            # would silently bind to somebody else's data on import. Attach
+            # the lakehouse in the workspace after deploying.
         },
         "nbformat": 4,
         "nbformat_minor": 5,

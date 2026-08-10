@@ -28,10 +28,17 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+from pathlib import Path
 
-CLUSTER_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
-KUSTO_DB = "EH_AgentEval"
-REPO = "alipouw13/powerbi-ai-demo"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from config import (  # noqa: E402
+    GITHUB_REPOSITORY as REPO,
+    KUSTO_DATABASE_NAME as KUSTO_DB,
+    KUSTO_URI as CLUSTER_URI,
+    require,
+)
+
 LABEL = "agent-accuracy"
 
 # Only defects a person has to handle. Tier 1 has an approvable sentence and
@@ -176,6 +183,10 @@ def main() -> int:
                         help="print what would be filed and file nothing")
     parser.add_argument("--question", help="limit to one question id")
     args = parser.parse_args()
+
+    require("FABRIC_KUSTO_URI")
+    if not args.dry_run:
+        require("GITHUB_REPOSITORY")
 
     defects = kusto(TIER_TWO_KQL)
     if args.question:
