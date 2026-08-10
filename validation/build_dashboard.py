@@ -225,11 +225,11 @@ def build_definition() -> dict:
         "id": stable_id("dashboard/agent-accuracy"),
         "schema_version": SCHEMA_VERSION,
         "title": DASHBOARD_NAME,
-        "autoRefresh": {
-            "enabled": True,
-            "defaultDuration": "5m",
-            "minimumDuration": "1m",
-        },
+        # Only `enabled`. At this schema version autoRefresh rejects anything
+        # else with "must NOT have unevaluated properties", and adding
+        # defaultDuration or minimumDuration is enough to stop the whole
+        # dashboard loading. The refresh interval is set in the portal.
+        "autoRefresh": {"enabled": True},
         "baseQueries": [],
         "parameters": [],
         "dataSources": [{
@@ -260,6 +260,33 @@ def validate(definition: dict) -> list[str]:
             return True
         except (ValueError, AttributeError, TypeError):
             return False
+
+    # The schema rejects unknown properties outright, with "must NOT have
+    # unevaluated properties". A single extra key anywhere stops the whole
+    # dashboard loading, so the allowed sets are pinned here rather than
+    # discovered one modal at a time.
+    allowed = {
+        "autoRefresh": {"enabled"},
+        "tile": {"id", "title", "visualType", "pageId", "layout", "queryRef",
+                 "visualOptions"},
+        "query": {"id", "dataSource", "text", "usedVariables"},
+        "dataSource": {"id", "name", "clusterUri", "database", "kind", "scopeId"},
+        "page": {"id", "name"},
+    }
+
+    extra = set(definition.get("autoRefresh", {})) - allowed["autoRefresh"]
+    if extra:
+        problems.append(f"autoRefresh has unsupported propertie(s): {sorted(extra)}")
+
+    for section, key in (("tiles", "tile"), ("queries", "query"),
+                         ("dataSources", "dataSource"), ("pages", "page")):
+        for entry in definition[section]:
+            unexpected = set(entry) - allowed[key]
+            if unexpected:
+                problems.append(
+                    f"{section}: {entry.get('title') or entry.get('id')} has "
+                    f"unsupported propertie(s): {sorted(unexpected)}"
+                )
 
     for section in ("tiles", "queries", "dataSources", "pages"):
         seen = set()

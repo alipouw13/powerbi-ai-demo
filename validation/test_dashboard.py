@@ -35,6 +35,12 @@ class TestDefinitionValidates(unittest.TestCase):
         # the file, so the file must name a version it has a migration from.
         self.assertEqual(self.definition["schema_version"], "52")
 
+    def test_auto_refresh_has_no_extra_properties(self) -> None:
+        # At this schema version autoRefresh accepts only `enabled`. Adding
+        # defaultDuration or minimumDuration fails validation with "must NOT
+        # have unevaluated properties" and stops the dashboard loading.
+        self.assertEqual(set(self.definition["autoRefresh"]), {"enabled"})
+
     def test_every_tile_is_a_table(self) -> None:
         # A chart carries column bindings that have to survive the client's
         # schema migration, and a tile that fails to render takes the whole
@@ -109,6 +115,26 @@ class TestValidatorCatchesRealFailures(unittest.TestCase):
         self.definition["tiles"][1]["id"] = self.definition["tiles"][0]["id"]
         problems = dash.validate(self.definition)
         self.assertTrue(any("duplicate id" in p for p in problems), problems)
+
+    def test_rejects_an_unsupported_auto_refresh_property(self) -> None:
+        # The real failure: "/autoRefresh ... must NOT have unevaluated
+        # properties" for defaultDuration and minimumDuration.
+        self.definition["autoRefresh"]["defaultDuration"] = "5m"
+        problems = dash.validate(self.definition)
+        self.assertTrue(
+            any("autoRefresh" in p and "defaultDuration" in p for p in problems),
+            problems,
+        )
+
+    def test_rejects_an_unsupported_tile_property(self) -> None:
+        self.definition["tiles"][0]["description"] = "not in the schema"
+        problems = dash.validate(self.definition)
+        self.assertTrue(any("description" in p for p in problems), problems)
+
+    def test_rejects_an_unsupported_query_property(self) -> None:
+        self.definition["queries"][0]["name"] = "not in the schema"
+        problems = dash.validate(self.definition)
+        self.assertTrue(any("name" in p for p in problems), problems)
 
 
 class TestQueriesMatchTheTables(unittest.TestCase):
