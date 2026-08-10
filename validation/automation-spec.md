@@ -23,6 +23,8 @@ This spec describes the production version, and the repo now implements it.
 | [`build_eval_notebook.py`](build_eval_notebook.py) | repo | Generates the eval notebook so the embedded copy cannot drift |
 | [`build_remediation_notebook.py`](build_remediation_notebook.py) | repo | Generates the remediation notebook |
 | [`build_activator.py`](build_activator.py) | repo | Creates both Activator rules through the Fabric REST API |
+| [`config.py`](config.py) | repo | Deployment values, read from the environment, with fail fast |
+| [`test_no_secrets.py`](test_no_secrets.py) | repo | Proves no tenant id, hostname or address is committed |
 | [`build_dashboard.py`](build_dashboard.py) | repo | Creates the real-time dashboard, and runs the load endpoint's validation rules first |
 | [`build_schedule.py`](build_schedule.py) | repo | Puts the eval notebook on a daily schedule |
 | [`file_issues.py`](file_issues.py) | repo | Files tier 2 defects as GitHub issues, with evidence |
@@ -41,6 +43,26 @@ Run the tests with:
 ```bash
 python -m unittest discover -s validation -p "test_*.py"
 ```
+
+### Configuration
+
+Nothing in this repo carries a workspace id, a Kusto hostname, a notebook id or
+a recipient address. Those are tenant facts. A repo that hardcodes them leaks
+its own topology into every fork, and a committed notebook that already points
+at a workspace will run against it on import.
+
+Every deployment script reads its values from the environment through
+[`config.py`](config.py) and fails before doing anything if one is missing,
+naming all of them at once. Copy [`.env.example`](.env.example), fill it in,
+and load it.
+
+The committed notebooks ship with empty `WORKSPACE_ID`, `DATA_AGENT_ID` and
+`KUSTO_URI`, and with no lakehouse dependency metadata. Supply those when you
+deploy, and attach the lakehouse in the workspace.
+
+[`test_no_secrets.py`](test_no_secrets.py) enforces this. It scans the
+committed tree for the *shape* of the things that must not be there, so a new
+id pasted in next month is caught as well as the ones removed today.
 
 ### The loop, end to end
 
@@ -545,13 +567,24 @@ python -m unittest discover -s validation -p "test_*.py"
 python validation/ground_truth.py
 ```
 
-146 tests should pass, and the ground truth should print `$412,918.50` for Q01.
+157 tests should pass, and the ground truth should print `$412,918.50` for Q01.
 If the tests pass but a number has moved, the data generator has changed and
 every figure in `docs/` is now wrong.
 
-These also check things that used to need a browser and a Spark session:
-the dashboard definition would load, both notebooks match their generators,
-and the embedded code compiles and grades correctly.
+These also check things that used to need a browser and a Spark session: the
+dashboard definition would load, both notebooks match their generators, the
+embedded code compiles and grades correctly, and nothing tenant specific is
+committed.
+
+### Before anything touches Fabric
+
+```bash
+cp validation/.env.example validation/.env.local   # then fill it in
+python validation/build_dashboard.py               # should fail fast if unset
+```
+
+A script that runs without complaint when nothing is configured is a script
+about to create items somewhere unexpected.
 
 ### In the workspace, in this order
 

@@ -68,10 +68,11 @@ class TestNotebookStructure(unittest.TestCase):
         ]
         self.assertEqual(len(tagged), 1, "exactly one parameters cell expected")
 
-    def test_default_lakehouse_is_attached(self) -> None:
-        lakehouse = self.nb["metadata"]["dependencies"]["lakehouse"]
-        self.assertTrue(lakehouse["default_lakehouse"])
-        self.assertTrue(lakehouse["default_lakehouse_workspace_id"])
+    def test_committed_notebook_has_no_deployment_binding(self) -> None:
+        # A lakehouse binding names a workspace and a lakehouse, so committing
+        # one leaks the topology and makes the notebook run against somebody
+        # else's data on import. Attach the lakehouse after deploying.
+        self.assertNotIn("dependencies", self.nb["metadata"])
 
     def test_repeat_defaults_above_one(self) -> None:
         # A repeat of 1 cannot distinguish wrong from ambiguous, which is the
