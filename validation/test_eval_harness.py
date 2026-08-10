@@ -308,6 +308,7 @@ class TestUnrequestedTimeFilter(unittest.TestCase):
         self.assertEqual(proposal.tier, 1)
         self.assertIn("time scope", proposal.fix_target)
         self.assertTrue(proposal.automatable)
+        self.assertTrue(proposal.auto_appliable)
 
     def test_without_narrowing_language_it_stays_tier_two(self) -> None:
         result = eh.QuestionResult(
@@ -423,6 +424,194 @@ class TestTimeNarrowingPhrasings(unittest.TestCase):
         self.assertFalse(result.is_defect)
 
 
+class TestProposedInstructions(unittest.TestCase):
+    """Every tier 1 proposal must carry the literal text a human approves."""
+
+    def setUp(self) -> None:
+        self.expectations = eh.build_expectations(gt.compute_raw())
+
+    def _proposal(self, qid, grades, answer="", kind=eh.SCORED, detail=""):
+        result = eh.QuestionResult(
+            qid, kind,
+            [eh.Attempt(qid, i, answer, g, detail=detail) for i, g in enumerate(grades)],
+        )
+        return eh.route_defect(result, self.expectations[qid])
+
+    def test_time_scope_proposal_has_concrete_text(self) -> None:
+        p = self._proposal(
+            "Q10", [eh.PARTLY_CORRECT] * 3,
+            answer="For the latest full year available, net revenue by region is",
+            detail="labels right",
+        )
+        self.assertEqual(p.tier, 1)
+        self.assertIn("all available data", p.proposed_instruction)
+        self.assertEqual(p.instruction_target, eh.TARGET_SEMANTIC_MODEL)
+        self.assertTrue(p.auto_appliable)
+
+    def test_forecast_guardrail_proposes_the_no_forecast_line(self) -> None:
+        p = self._proposal("F01", [eh.WRONG] * 3, kind=eh.PROBE)
+        self.assertIn("historical data only", p.proposed_instruction)
+        self.assertTrue(p.auto_appliable)
+
+    def test_region_guardrail_lists_the_three_regions(self) -> None:
+        p = self._proposal("F03", [eh.WRONG] * 3, kind=eh.PROBE)
+        for region in ("West", "Central", "East"):
+            self.assertIn(region, p.proposed_instruction)
+
+    def test_margin_guardrail_names_both_measures(self) -> None:
+        p = self._proposal("F02", [eh.WRONG] * 3, kind=eh.PROBE)
+        self.assertIn("Gross Margin", p.proposed_instruction)
+        self.assertIn("rate", p.proposed_instruction)
+
+    def test_instructions_always_target_the_model_not_the_agent(self) -> None:
+        # Agent instructions are not passed to DAX generation, so an
+        # instruction that is meant to change a number must go to the model.
+        for p in (
+            self._proposal("F01", [eh.WRONG] * 3, kind=eh.PROBE),
+            self._proposal("F03", [eh.WRONG] * 3, kind=eh.PROBE),
+            self._proposal("Q10", [eh.PARTLY_CORRECT] * 3,
+                           answer="for the most recent period", detail="labels right"),
+        ):
+            self.assertEqual(p.instruction_target, eh.TARGET_SEMANTIC_MODEL)
+
+    def test_tier_two_carries_no_auto_applicable_text(self) -> None:
+        p = self._proposal("Q01", [eh.WRONG] * 3)
+        self.assertEqual(p.tier, 2)
+        self.assertEqual(p.proposed_instruction, "")
+        self.assertFalse(p.auto_appliable)
+
+    def test_infrastructure_failure_is_never_auto_appliable(self) -> None:
+        p = self._proposal("Q01", [eh.ERRORED] * 3)
+        self.assertEqual(p.tier, 0)
+        self.assertFalse(p.auto_appliable)
+
+    def test_no_proposed_instruction_mentions_verified_answers(self) -> None:
+        for text in eh.INSTRUCTION_LIBRARY.values():
+            self.assertNotIn("verified answer", text.lower())
+
+
+class TestInstructionMerge(unittest.TestCase):
+    """Appending an approved instruction must be safe to run repeatedly."""
+
+    LINE = "When a question does not state a time period, use all available data."
+
+    def test_appends_under_a_heading(self) -> None:
+        merged, changed = eh.merge_instruction("Existing model guidance.", self.LINE)
+        self.assertTrue(changed)
+        self.assertIn(eh.REMEDIATION_HEADING, merged)
+        self.assertIn(self.LINE, merged)
+        self.assertTrue(merged.startswith("Existing model guidance."))
+
+    def test_is_idempotent(self) -> None:
+        once, _ = eh.merge_instruction("Existing.", self.LINE)
+        twice, changed = eh.merge_instruction(once, self.LINE)
+        self.assertFalse(changed)
+        self.assertEqual(once, twice)
+        self.assertEqual(twice.count(self.LINE), 1)
+
+    def test_second_instruction_reuses_the_same_heading(self) -> None:
+        first, _ = eh.merge_instruction("Existing.", self.LINE)
+        second, changed = eh.merge_instruction(first, "Another approved line.")
+        self.assertTrue(changed)
+        self.assertEqual(second.count(eh.REMEDIATION_HEADING), 1)
+        self.assertIn(self.LINE, second)
+        self.assertIn("Another approved line.", second)
+
+    def test_never_removes_existing_text(self) -> None:
+        original = "Line one.\nLine two.\nLine three."
+        merged, _ = eh.merge_instruction(original, self.LINE)
+        for line in original.splitlines():
+            self.assertIn(line, merged)
+
+    def test_a_substring_of_another_line_is_not_already_present(self) -> None:
+        # The bug this replaced: a raw substring test would report "already
+        # present" for a short sentence contained in a longer one, closing an
+        # approval for an instruction the model never received.
+        longer = (
+            "When a question does not state a time period, use all available data "
+            "and also mention the currency."
+        )
+        shorter = "When a question does not state a time period, use all available data"
+        self.assertFalse(eh.instruction_present(longer, shorter))
+        merged, changed = eh.merge_instruction(longer, shorter)
+        self.assertTrue(changed, "a distinct instruction must still be added")
+        self.assertIn(shorter, merged)
+
+    def test_exact_line_match_is_still_idempotent(self) -> None:
+        once, _ = eh.merge_instruction("Existing.", self.LINE)
+        twice, changed = eh.merge_instruction(once, self.LINE)
+        self.assertFalse(changed)
+        self.assertEqual(once, twice)
+
+    def test_instruction_present_matches_whole_lines_only(self) -> None:
+        text = "Alpha beta gamma.\nDelta epsilon."
+        self.assertTrue(eh.instruction_present(text, "Delta epsilon."))
+        self.assertTrue(eh.instruction_present(text, "  Delta epsilon.  "))
+        self.assertFalse(eh.instruction_present(text, "beta"))
+        self.assertFalse(eh.instruction_present(text, ""))
+
+    def test_empty_instruction_changes_nothing(self) -> None:
+        merged, changed = eh.merge_instruction("Existing.", "")
+        self.assertFalse(changed)
+        self.assertEqual(merged, "Existing.")
+
+    def test_handles_empty_existing_text(self) -> None:
+        merged, changed = eh.merge_instruction("", self.LINE)
+        self.assertTrue(changed)
+        self.assertIn(self.LINE, merged)
+
+
+class TestEscalationWhenTheFixWasAlreadyTried(unittest.TestCase):
+    """The loop must not offer a fix it has already applied.
+
+    This came from a real run. The time-scope instruction was approved and
+    applied, the score moved, but Q10 still failed. Without escalation the
+    loop proposes the same sentence forever, a human approves it forever, the
+    merge is idempotent so nothing changes, and the defect never closes.
+    """
+
+    def setUp(self) -> None:
+        self.expectations = eh.build_expectations(gt.compute_raw())
+        self.narrowed = "For the latest full year available, revenue by region is"
+        self.result = eh.QuestionResult(
+            "Q10", eh.SCORED,
+            [
+                eh.Attempt("Q10", i, self.narrowed, eh.PARTLY_CORRECT,
+                           detail="labels right, values missing")
+                for i in range(3)
+            ],
+        )
+
+    def test_first_time_it_proposes_the_instruction(self) -> None:
+        proposals = eh.propose_fixes([self.result], self.expectations)
+        self.assertEqual(len(proposals), 1)
+        self.assertEqual(proposals[0].tier, 1)
+        self.assertTrue(proposals[0].auto_appliable)
+
+    def test_second_time_it_escalates_to_a_human(self) -> None:
+        already = frozenset({eh.INSTRUCTION_LIBRARY["default_time_scope"]})
+        proposals = eh.propose_fixes([self.result], self.expectations, already)
+        self.assertEqual(len(proposals), 1)
+        proposal = proposals[0]
+        self.assertEqual(proposal.tier, 2)
+        self.assertFalse(proposal.auto_appliable)
+        self.assertFalse(proposal.automatable)
+        self.assertIn("already in the model", proposal.rationale)
+
+    def test_an_unrelated_applied_instruction_does_not_escalate(self) -> None:
+        already = frozenset({eh.INSTRUCTION_LIBRARY["no_forecast"]})
+        proposals = eh.propose_fixes([self.result], self.expectations, already)
+        self.assertEqual(proposals[0].tier, 1)
+
+    def test_a_passing_question_is_never_escalated(self) -> None:
+        passing = eh.QuestionResult(
+            "Q10", eh.SCORED,
+            [eh.Attempt("Q10", i, "", eh.CORRECT) for i in range(3)],
+        )
+        already = frozenset({eh.INSTRUCTION_LIBRARY["default_time_scope"]})
+        self.assertEqual(eh.propose_fixes([passing], self.expectations, already), [])
+
+
 class TestClassification(unittest.TestCase):
     def test_all_correct_is_stable_pass(self) -> None:
         self.assertEqual(
@@ -532,7 +721,8 @@ class TestDefectRouting(unittest.TestCase):
         result = _result("F01", [eh.WRONG] * 3, kind=eh.PROBE)
         proposal = eh.route_defect(result, self.expectations["F01"])
         self.assertEqual(proposal.tier, 1)
-        self.assertIn("ai-instructions", proposal.fix_target)
+        self.assertIn("AI instructions", proposal.fix_target)
+        self.assertEqual(proposal.instruction_target, eh.TARGET_SEMANTIC_MODEL)
 
     def test_no_proposal_ever_writes_a_verified_answer(self) -> None:
         # Principle 1.2 of the spec. A loop that can pin a verified answer will
@@ -555,7 +745,7 @@ class TestDefectRouting(unittest.TestCase):
         self.assertEqual(eh.propose_fixes(results, self.expectations), [])
 
     def test_every_tier_one_proposal_is_additive_metadata(self) -> None:
-        allowed = ("ai-instructions", "AI data schema", "descriptions")
+        allowed = ("AI instructions", "AI data schema", "descriptions")
         results = [
             _result("Q02", [eh.REFUSED] * 3),
             _result("F01", [eh.WRONG] * 3, kind=eh.PROBE),

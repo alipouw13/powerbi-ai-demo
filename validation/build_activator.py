@@ -27,6 +27,7 @@ import uuid
 
 WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
 KQL_DATABASE_ID = "044af2c9-068d-4728-bf78-f83b6aa1c238"
+REMEDIATION_NOTEBOOK_ID = "d3863cec-220f-4de1-beb4-0331bdd6c974"
 ACTIVATOR_NAME = "Agent Accuracy Alerts"
 RECIPIENTS = ["admin@MngEnvMCAP257273.onmicrosoft.com"]
 
@@ -42,6 +43,24 @@ eval_runs
           flake_count, failure_count, guardrails_lost_count,
           errored_count, alert_count, alert_severity, alert_detail
 | order by run_ts asc"""
+
+# Open approvals, derived rather than stored. An approval is outstanding when
+# it is approved and no persisted remediation references its approval_id.
+# Kusto is append only, so "applied" cannot be a mutable flag. The same
+# expression lives in approve.py and in the remediation notebook, and it is
+# the reason none of them can disagree about what is still outstanding.
+APPROVALS_QUERY = """declare query_parameters(startTime:datetime, endTime:datetime);
+eval_approvals
+| where approved_ts between (startTime .. endTime)
+| where decision == "approved"
+| join kind=leftanti (
+    eval_remediations
+    | where persisted == true
+    | distinct approval_id
+  ) on approval_id
+| project approved_ts, approval_id, question_id, decision, approved_by,
+          instruction_target, proposed_instruction
+| order by approved_ts asc"""
 
 
 def stringify(template: dict) -> str:
@@ -178,41 +197,71 @@ def build_entities() -> list[dict]:
                 "name": "ActStep",
                 "id": str(uuid.uuid4()),
                 "rows": [{
-                    "name": "TeamsBinding",
-                    "kind": "TeamsMessage",
+                    # Email rather than Teams, because this tenant has no
+                    # Teams. To switch to a Teams message instead, replace
+                    # this whole row with:
+                    #
+                    #   {"name": "TeamsBinding", "kind": "TeamsMessage",
+                    #    "arguments": [
+                    #        {"name": "messageLocale", "type": "string",
+                    #         "value": "en-us"},
+                    #        {"name": "recipients", "type": "array",
+                    #         "values": [{"type": "string", "value": addr}
+                    #                    for addr in RECIPIENTS]},
+                    #        {"name": "headline", ...},          # same as below
+                    #        {"name": "optionalMessage", ...},   # same as below
+                    #        {"name": "additionalInformation", ...},
+                    #    ]}
+                    #
+                    # Teams takes `recipients` and has no `subject`. Email
+                    # takes `sentTo` / `copyTo` / `bCCTo` and requires
+                    # `subject`. Every other field is identical, and the
+                    # rule around it does not change at all.
+                    "name": "EmailBinding",
+                    "kind": "EmailMessage",
                     "arguments": [
                         {"name": "messageLocale", "type": "string", "value": "en-us"},
                         {
-                            "name": "recipients",
+                            "name": "sentTo",
                             "type": "array",
                             "values": [
                                 {"type": "string", "value": r} for r in RECIPIENTS
                             ],
                         },
+                        {"name": "copyTo", "type": "array", "values": []},
+                        {"name": "bCCTo", "type": "array", "values": []},
+                        {
+                            "name": "subject",
+                            "type": "array",
+                            "values": [{
+                                "type": "string",
+                                "value": "Data agent accuracy regression",
+                            }],
+                        },
                         {
                             "name": "headline",
                             "type": "array",
-                            "values": [
-                                {
-                                    "name": "string",
-                                    "type": "string",
-                                    "value": "Data agent accuracy regression, confirm before any fix",
-                                }
-                            ],
+                            "values": [{
+                                "type": "string",
+                                "value": (
+                                    "An evaluation run raised a high severity alert. "
+                                    "Confirm before any fix."
+                                ),
+                            }],
                         },
                         {
                             "name": "optionalMessage",
                             "type": "array",
                             "values": [
                                 {
-                                    "name": "string",
                                     "type": "string",
                                     "value": (
-                                        "An evaluation run raised a high severity alert. "
-                                        "Open eval_defects in LH_ContosoCoffee for the "
-                                        "proposed fix, confirm the defect is real, then "
-                                        "let a human apply it. Nothing has been changed "
-                                        "automatically. Detail: "
+                                        "Open the Agent Accuracy dashboard and read "
+                                        "the remediation queue. Each failing question "
+                                        "carries the exact sentence that would fix it. "
+                                        "Approve one with: python validation/approve.py "
+                                        "--question <id> --by <you>. Nothing has been "
+                                        "changed automatically. Detail: "
                                     ),
                                 },
                                 event_field("alert_detail"),
@@ -272,7 +321,202 @@ def build_entities() -> list[dict]:
         "type": "timeSeriesView-v1",
     }
 
-    return [container, source, source_event, rule]
+    # ----------------------------------------------------------------------
+    # The approval half of the loop
+    # ----------------------------------------------------------------------
+    #
+    # A row in eval_approvals is a human saying "yes, add exactly this
+    # sentence". The rule reacts to that decision, never to the proposal that
+    # produced it. That separation is what stops the loop approving its own
+    # work, and it is why the approval carries its own copy of the instruction
+    # text rather than a pointer to a row that could change underneath it.
+
+    approvals_source_id = str(uuid.uuid4())
+    approvals_event_id = str(uuid.uuid4())
+    notebook_action_id = str(uuid.uuid4())
+    approval_rule_id = str(uuid.uuid4())
+
+    approvals_source = {
+        "uniqueIdentifier": approvals_source_id,
+        "payload": {
+            "name": "Remediation approvals",
+            "runSettings": {"executionIntervalInSeconds": 60},
+            "query": {"queryString": APPROVALS_QUERY},
+            "eventhouseItem": {
+                "itemId": KQL_DATABASE_ID,
+                "workspaceId": WORKSPACE_ID,
+                "itemType": "KustoDatabase",
+            },
+            "queryParameters": [
+                {"name": "startTime", "type": "DURATION_START",
+                 "value": "2026-01-01T00:00:00Z"},
+                {"name": "endTime", "type": "DURATION_END",
+                 "value": "2026-01-01T00:05:00Z"},
+            ],
+            "eventTimeSettings": {
+                "timeFieldName": "approved_ts",
+                "ingestionDelayInSeconds": 60,
+                "timeZone": "UTC",
+            },
+            "metadata": {
+                "workspaceId": WORKSPACE_ID,
+                "measureName": "",
+                "querySetId": "",
+                "queryId": "",
+            },
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+        },
+        "type": "kqlSource-v1",
+    }
+
+    approvals_event = {
+        "uniqueIdentifier": approvals_event_id,
+        "payload": {
+            "name": "Approval decision",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+            "definition": {
+                "type": "Event",
+                "instance": stringify({
+                    "templateId": "SourceEvent",
+                    "templateVersion": TEMPLATE_VERSION,
+                    "steps": [{
+                        "name": "SourceEventStep",
+                        "id": str(uuid.uuid4()),
+                        "rows": [{
+                            "name": "SourceSelector",
+                            "kind": "SourceReference",
+                            "arguments": [{
+                                "name": "entityId", "type": "string",
+                                "value": approvals_source_id,
+                            }],
+                        }],
+                    }],
+                }),
+            },
+        },
+        "type": "timeSeriesView-v1",
+    }
+
+    notebook_action = {
+        "uniqueIdentifier": notebook_action_id,
+        "payload": {
+            "name": "Run agent_remediate",
+            "fabricItem": {
+                "itemId": REMEDIATION_NOTEBOOK_ID,
+                "workspaceId": WORKSPACE_ID,
+                "itemType": "SynapseNotebook",
+            },
+            "jobType": "RunNotebook",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+        },
+        "type": "fabricItemAction-v1",
+    }
+
+    def parameter(name: str, kind: str, value) -> dict:
+        return {
+            "kind": "FabricItemParameter",
+            "type": "complex",
+            "arguments": [
+                {"name": "parameterName", "type": "string", "value": name},
+                {"name": "parameterType", "type": "string", "value": kind},
+                {"name": "parameterValue", "type": "complexArray",
+                 "values": [{"type": "string", "value": value}]},
+            ],
+        }
+
+    approval_rule_template = {
+        "templateId": "EventTrigger",
+        "templateVersion": TEMPLATE_VERSION,
+        "steps": [
+            {
+                "name": "FieldsDefaultsStep",
+                "id": str(uuid.uuid4()),
+                "rows": [{
+                    "name": "EventSelector",
+                    "kind": "Event",
+                    "arguments": [{
+                        "kind": "EventReference",
+                        "type": "complex",
+                        "name": "event",
+                        "arguments": [{
+                            "name": "entityId", "type": "string",
+                            "value": approvals_event_id,
+                        }],
+                    }],
+                }],
+            },
+            {
+                "name": "EventDetectStep",
+                "id": str(uuid.uuid4()),
+                "rows": [
+                    {
+                        "name": "EventFieldSelector",
+                        "kind": "EventField",
+                        "arguments": [{
+                            "name": "fieldName", "type": "string",
+                            "value": "decision",
+                        }],
+                    },
+                    {
+                        "name": "TextValueCondition",
+                        "kind": "TextValueCondition",
+                        "arguments": [
+                            {"name": "op", "type": "string", "value": "IsEqualTo"},
+                            {"name": "value", "type": "string", "value": "approved"},
+                        ],
+                    },
+                ],
+            },
+            {
+                "name": "ActStep",
+                "id": str(uuid.uuid4()),
+                "rows": [{
+                    "name": "FabricItemBinding",
+                    "kind": "FabricItemInvocation",
+                    "arguments": [
+                        {"name": "workspaceId", "type": "string", "value": WORKSPACE_ID},
+                        {"name": "itemId", "type": "string",
+                         "value": REMEDIATION_NOTEBOOK_ID},
+                        {"name": "itemType", "type": "string",
+                         "value": "SynapseNotebook"},
+                        {"name": "jobType", "type": "string", "value": "RunNotebook"},
+                        {"name": "fabricJobConnectionDocumentId", "type": "string",
+                         "value": notebook_action_id},
+                        {"name": "additionalInformation", "type": "array", "values": []},
+                        {"name": "parameters", "type": "array", "values": [
+                            # Empty question id means "every approved and
+                            # unapplied row", so a burst of approvals is one
+                            # run rather than a race between several.
+                            parameter("QUESTION_ID", "String", ""),
+                            parameter("APPROVED_BY", "String", "activator-auto-apply"),
+                            parameter("DRY_RUN", "Boolean", "false"),
+                        ]},
+                    ],
+                }],
+            },
+        ],
+    }
+
+    approval_rule = {
+        "uniqueIdentifier": approval_rule_id,
+        "payload": {
+            "name": "Approved remediation, apply it",
+            "description": "Created by: skills-for-fabric",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+            "definition": {
+                "type": "Rule",
+                "instance": stringify(approval_rule_template),
+                "settings": {"shouldRun": True, "shouldApplyRuleOnUpdate": False},
+            },
+        },
+        "type": "timeSeriesView-v1",
+    }
+
+    return [
+        container,
+        source, source_event, rule,
+        approvals_source, approvals_event, notebook_action, approval_rule,
+    ]
 
 
 # --------------------------------------------------------------------------
