@@ -28,10 +28,16 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-EVAL_NOTEBOOK_ID = "6d20bf31-33ca-4de4-8e47-40594276251c"
-FABRIC_API = "https://api.fabric.microsoft.com"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from config import (  # noqa: E402
+    EVAL_NOTEBOOK_ID,
+    FABRIC_API,
+    WORKSPACE_ID,
+    require,
+)
 
 JOB_TYPE = "RunNotebook"
 
@@ -125,6 +131,7 @@ def apply(enabled: bool = True) -> int:
 
 
 def main() -> int:
+    require("FABRIC_WORKSPACE_ID", "FABRIC_EVAL_NOTEBOOK_ID")
     if "--list" in sys.argv:
         return show()
     if "--disable" in sys.argv:

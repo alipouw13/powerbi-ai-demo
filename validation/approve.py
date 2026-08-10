@@ -35,9 +35,15 @@ import urllib.error
 import urllib.request
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
-CLUSTER_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
-KUSTO_DB = "EH_AgentEval"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from config import (  # noqa: E402
+    KUSTO_DATABASE_NAME as KUSTO_DB,
+    KUSTO_URI as CLUSTER_URI,
+    require,
+)
 
 # The one definition of outstanding work. Everything that needs to know what
 # is still open uses this, so nothing can drift.
@@ -206,6 +212,8 @@ def main() -> int:
     parser.add_argument("--reject", action="store_true")
     parser.add_argument("--note", default="")
     args = parser.parse_args()
+
+    require("FABRIC_KUSTO_URI")
 
     if args.open:
         return show_open()

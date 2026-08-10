@@ -39,12 +39,19 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
-WORKSPACE_ID = "1713f459-7fcf-4704-94d6-7df5827ddcb0"
-KQL_DATABASE_NAME = "EH_AgentEval"
-CLUSTER_URI = "https://trd-391auppsxutg30p2va.z9.kusto.fabric.microsoft.com"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from config import (  # noqa: E402
+    FABRIC_API,
+    KUSTO_DATABASE_NAME as KQL_DATABASE_NAME,
+    KUSTO_URI as CLUSTER_URI,
+    WORKSPACE_ID,
+    require,
+)
+
 DASHBOARD_NAME = "Agent Accuracy"
-FABRIC_API = "https://api.fabric.microsoft.com"
 
 # Bump this if the portal reports "Missing migration for dashboard version N".
 SCHEMA_VERSION = "78"
@@ -335,6 +342,8 @@ def main() -> int:
     if "--print-only" in sys.argv:
         print(json.dumps(definition_json, indent=2))
         return 0
+
+    require("FABRIC_WORKSPACE_ID", "FABRIC_KUSTO_URI")
 
     print(f"definition valid: {len(definition_json['tiles'])} tiles, "
           f"schema_version {SCHEMA_VERSION}")
