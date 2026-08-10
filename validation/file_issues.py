@@ -71,6 +71,11 @@ def kusto(csl: str) -> list[dict]:
     return [dict(zip(columns, row)) for row in table["Rows"]]
 
 
+def kql_string(value: str) -> str:
+    """Quote a Python string as a KQL single-quoted literal."""
+    return "'" + (value or "").replace("'", "''") + "'"
+
+
 def gh(args: list[str]) -> str:
     # No shell=True. The issue body contains the agent's own answers verbatim,
     # and on Windows a list plus shell=True is joined and handed to cmd.exe,
@@ -97,8 +102,10 @@ def existing_issue(question_id: str) -> str | None:
 
 def evidence(question_id: str, run_id: str) -> str:
     try:
+        run_id_kql = kql_string(run_id)
+        question_kql = kql_string(question_id)
         attempts = kusto(
-            f"eval_results | where run_id == '{run_id}' and question_id == '{question_id}' "
+            f"eval_results | where run_id == {run_id_kql} and question_id == {question_kql} "
             "| project attempt, grade, detail, answer | order by attempt asc"
         )
     except SystemExit:
