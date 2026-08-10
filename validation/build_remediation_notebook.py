@@ -86,6 +86,11 @@ def build_cells() -> list[dict]:
             "\n"
             "# DRY_RUN prints the diff and writes nothing. Leave it true until you\n"
             "# have read the diff at least once.\n"
+            "#\n"
+            "# Coerced below rather than trusted. A parameter injected by Activator\n"
+            "# arrives as the string \"false\", and a non-empty string is truthy in\n"
+            "# Python, so an unguarded DRY_RUN silently turns every automated\n"
+            "# remediation into a no-op that reports success.\n"
             "DRY_RUN = True\n"
         ).splitlines(True),
     })
@@ -156,10 +161,41 @@ def build_cells() -> list[dict]:
     return cells
 
 
-APPROVALS_CELL = '''from pyspark.sql import functions as F
+APPROVALS_CELL = '''import notebookutils
 
 lh = f"{LAKEHOUSE_NAME}."
-approvals_table = lh + "eval_approvals"
+kusto_token = notebookutils.credentials.getToken(KUSTO_URI)
+
+# Parameters injected by Activator arrive as strings. "false" is a non-empty
+# string and therefore truthy, so without this every automated remediation
+# would quietly do nothing and report success.
+DRY_RUN = str(DRY_RUN).strip().lower() not in ("false", "0", "no", "")
+print(f"DRY_RUN resolved to {DRY_RUN}")
+
+
+def read_kusto(query):
+    return (
+        spark.read.format("com.microsoft.kusto.spark.synapse.datasource")
+        .option("kustoCluster", KUSTO_URI)
+        .option("kustoDatabase", KUSTO_DB)
+        .option("kustoQuery", query)
+        .option("accessToken", kusto_token)
+        .load()
+    )
+
+
+def write_kusto(df, table):
+    (
+        df.write.format("com.microsoft.kusto.spark.synapse.datasource")
+        .option("kustoCluster", KUSTO_URI)
+        .option("kustoDatabase", KUSTO_DB)
+        .option("kustoTable", table)
+        .option("accessToken", kusto_token)
+        .option("tableCreateOptions", "CreateIfNotExist")
+        .mode("Append")
+        .save()
+    )
+
 
 if not APPROVED_BY.strip():
     raise ValueError(
@@ -167,21 +203,25 @@ if not APPROVED_BY.strip():
         "anonymous changes."
     )
 
-if not spark.catalog.tableExists(approvals_table):
-    raise ValueError(
-        f"{approvals_table} does not exist. Approve a defect first, either from "
-        "the dashboard or by inserting a row into eval_approvals."
-    )
-
-approved = (
-    spark.table(approvals_table)
-         .filter(F.col("decision") == "approved")
-         .filter(F.col("applied") == False)  # noqa: E712
-)
+# The eventhouse is the only approval store, and nothing in it is mutated.
+# Open work is derived: approved, with no persisted remediation against the
+# same approval_id. The same expression is used by approve.py, the Activator
+# rule and the dashboard, so none of them can disagree about what is
+# outstanding.
+open_approvals_kql = """
+eval_approvals
+| where decision == "approved"
+| join kind=leftanti (
+    eval_remediations
+    | where persisted == true
+    | distinct approval_id
+  ) on approval_id
+"""
 if QUESTION_ID.strip():
-    approved = approved.filter(F.col("question_id") == QUESTION_ID.strip())
+    open_approvals_kql += f'| where question_id == "{QUESTION_ID.strip()}"\\n'
 
-pending = approved.collect()
+pending = read_kusto(open_approvals_kql).collect()
+
 print(f"{len(pending)} approved and unapplied item(s)")
 for row in pending:
     print(f"  {row['question_id']}  target={row['instruction_target']}  by={row['approved_by']}")
@@ -295,6 +335,23 @@ else:
             "database": model_script,
         }
     }
+
+    # Optimistic concurrency. This is a read-modify-write of the whole model,
+    # so two remediation runs overlapping would both read the same starting
+    # point and the second would silently drop the first one's instruction,
+    # while both reported success and both closed their approvals. Re-read
+    # immediately before writing and refuse if anything moved underneath us.
+    guard = json.loads(fabric.get_tmsl(SEMANTIC_MODEL_NAME, workspace=WORKSPACE_ID))
+    if str(guard.get("lastUpdate")) != str(last_update_before):
+        raise RuntimeError(
+            "the model changed while this run was preparing its edit.\\n\\n"
+            f"read at   {last_update_before}\\n"
+            f"now at    {guard.get('lastUpdate')}\\n\\n"
+            "Writing now would replace the whole model from a stale snapshot "
+            "and discard whatever the other change added. Nothing was written. "
+            "Re-run this notebook; the approval is still open."
+        )
+
     fabric.execute_tmsl(script=json.dumps(script), workspace=WORKSPACE_ID)
     print("execute_tmsl returned without error")
 
@@ -349,7 +406,9 @@ now = datetime.datetime.now(datetime.timezone.utc)
 
 remediations_schema = StructType([
     StructField("remediation_id", StringType()),
+    StructField("recorded_ts", TimestampType()),
     StructField("applied_ts", TimestampType()),
+    StructField("approval_id", StringType()),
     StructField("question_id", StringType()),
     StructField("instruction_target", StringType()),
     StructField("instruction", StringType()),
@@ -359,12 +418,21 @@ remediations_schema = StructType([
     StructField("backup_path", StringType()),
     StructField("persisted", BooleanType()),
     StructField("verified", BooleanType()),
+    StructField("verified_ts", TimestampType()),
+    StructField("verified_run_id", StringType()),
 ])
 
-rows = [
-    Row(
+
+def remediation_row(row, was_persisted):
+    return Row(
         remediation_id=str(uuid.uuid4()),
+        # recorded_ts, not applied_ts, is the ordering key. A later
+        # verification appends a corrected row for the same remediation_id,
+        # and if both rows carried the same applied_ts then arg_max would pick
+        # between them arbitrarily and `verified` would flicker.
+        recorded_ts=now,
         applied_ts=now,
+        approval_id=row["approval_id"],
         question_id=row["question_id"],
         instruction_target=row["instruction_target"],
         instruction=row["proposed_instruction"],
@@ -372,52 +440,32 @@ rows = [
         applied_by=f"{APPROVED_BY} ({executing_identity})",
         dry_run=bool(DRY_RUN),
         backup_path=backup_path,
-        persisted=bool(persisted),
+        # An approval is consumed by a persisted remediation, so this flag is
+        # the only thing that closes it. It is never set after a silent no-op.
+        persisted=bool(was_persisted),
         verified=False,
+        verified_ts=None,
+        verified_run_id=None,
     )
-    for row in applied_now
-]
 
-if rows:
+
+# An instruction that is already in the model satisfies its approval just as
+# much as one this run added. Otherwise an approval applied by an earlier run,
+# or by a person editing the model directly, stays open forever.
+rows = [remediation_row(r, persisted) for r in applied_now]
+rows += [remediation_row(r, True) for r in already_present]
+
+if rows and not DRY_RUN:
     remediations_df = spark.createDataFrame(rows, schema=remediations_schema)
     remediations_df.write.mode("append").format("delta").saveAsTable(lh + "eval_remediations")
+    write_kusto(remediations_df, "eval_remediations")
 
-    if not DRY_RUN and persisted:
-        import notebookutils
-
-        kusto_token = notebookutils.credentials.getToken(KUSTO_URI)
-        (
-            remediations_df.write.format("com.microsoft.kusto.spark.synapse.datasource")
-            .option("kustoCluster", KUSTO_URI)
-            .option("kustoDatabase", KUSTO_DB)
-            .option("kustoTable", "eval_remediations")
-            .option("accessToken", kusto_token)
-            .option("tableCreateOptions", "CreateIfNotExist")
-            .mode("Append")
-            .save()
-        )
-    print(f"recorded {len(rows)} remediation(s)")
+    closed = sum(1 for r in rows if r["persisted"])
+    print(f"recorded {len(rows)} remediation(s), {closed} of which close an approval")
+elif rows:
+    print(f"DRY_RUN, so {len(rows)} remediation(s) were not recorded")
 else:
-    print("no new remediation rows")
-
-# An approval is consumed when the instruction is in the model, whether this
-# run put it there or an earlier one did. It is never consumed after a silent
-# no-op, because that would lose the work and leave a defect nobody is
-# prompted about again.
-satisfied = ([r["question_id"] for r in applied_now] if (not DRY_RUN and persisted) else [])
-satisfied += [r["question_id"] for r in already_present] if not DRY_RUN else []
-
-if satisfied:
-    quoted = ",".join(repr(i) for i in sorted(set(satisfied)))
-    spark.sql(f"""
-        UPDATE {approvals_table}
-        SET applied = true, applied_ts = current_timestamp()
-        WHERE question_id IN ({quoted})
-          AND decision = 'approved' AND applied = false
-    """)
-    print(f"marked {len(set(satisfied))} approval(s) applied")
-else:
-    print("no approvals marked applied")
+    print("nothing recorded")
 '''
 
 

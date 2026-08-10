@@ -44,13 +44,20 @@ eval_runs
           errored_count, alert_count, alert_severity, alert_detail
 | order by run_ts asc"""
 
-# The human gate. A row lands here only when a person has read the proposed
-# instruction and decided. The rule reacts to the decision, never to the
-# proposal, which is what keeps a machine from approving its own work.
+# Open approvals, derived rather than stored. An approval is outstanding when
+# it is approved and no persisted remediation references its approval_id.
+# Kusto is append only, so "applied" cannot be a mutable flag. The same
+# expression lives in approve.py and in the remediation notebook, and it is
+# the reason none of them can disagree about what is still outstanding.
 APPROVALS_QUERY = """declare query_parameters(startTime:datetime, endTime:datetime);
 eval_approvals
 | where approved_ts between (startTime .. endTime)
-| where applied == false
+| where decision == "approved"
+| join kind=leftanti (
+    eval_remediations
+    | where persisted == true
+    | distinct approval_id
+  ) on approval_id
 | project approved_ts, approval_id, question_id, decision, approved_by,
           instruction_target, proposed_instruction
 | order by approved_ts asc"""
@@ -190,41 +197,71 @@ def build_entities() -> list[dict]:
                 "name": "ActStep",
                 "id": str(uuid.uuid4()),
                 "rows": [{
-                    "name": "TeamsBinding",
-                    "kind": "TeamsMessage",
+                    # Email rather than Teams, because this tenant has no
+                    # Teams. To switch to a Teams message instead, replace
+                    # this whole row with:
+                    #
+                    #   {"name": "TeamsBinding", "kind": "TeamsMessage",
+                    #    "arguments": [
+                    #        {"name": "messageLocale", "type": "string",
+                    #         "value": "en-us"},
+                    #        {"name": "recipients", "type": "array",
+                    #         "values": [{"type": "string", "value": addr}
+                    #                    for addr in RECIPIENTS]},
+                    #        {"name": "headline", ...},          # same as below
+                    #        {"name": "optionalMessage", ...},   # same as below
+                    #        {"name": "additionalInformation", ...},
+                    #    ]}
+                    #
+                    # Teams takes `recipients` and has no `subject`. Email
+                    # takes `sentTo` / `copyTo` / `bCCTo` and requires
+                    # `subject`. Every other field is identical, and the
+                    # rule around it does not change at all.
+                    "name": "EmailBinding",
+                    "kind": "EmailMessage",
                     "arguments": [
                         {"name": "messageLocale", "type": "string", "value": "en-us"},
                         {
-                            "name": "recipients",
+                            "name": "sentTo",
                             "type": "array",
                             "values": [
                                 {"type": "string", "value": r} for r in RECIPIENTS
                             ],
                         },
+                        {"name": "copyTo", "type": "array", "values": []},
+                        {"name": "bCCTo", "type": "array", "values": []},
+                        {
+                            "name": "subject",
+                            "type": "array",
+                            "values": [{
+                                "type": "string",
+                                "value": "Data agent accuracy regression",
+                            }],
+                        },
                         {
                             "name": "headline",
                             "type": "array",
-                            "values": [
-                                {
-                                    "name": "string",
-                                    "type": "string",
-                                    "value": "Data agent accuracy regression, confirm before any fix",
-                                }
-                            ],
+                            "values": [{
+                                "type": "string",
+                                "value": (
+                                    "An evaluation run raised a high severity alert. "
+                                    "Confirm before any fix."
+                                ),
+                            }],
                         },
                         {
                             "name": "optionalMessage",
                             "type": "array",
                             "values": [
                                 {
-                                    "name": "string",
                                     "type": "string",
                                     "value": (
-                                        "An evaluation run raised a high severity alert. "
-                                        "Open eval_defects in LH_ContosoCoffee for the "
-                                        "proposed fix, confirm the defect is real, then "
-                                        "let a human apply it. Nothing has been changed "
-                                        "automatically. Detail: "
+                                        "Open the Agent Accuracy dashboard and read "
+                                        "the remediation queue. Each failing question "
+                                        "carries the exact sentence that would fix it. "
+                                        "Approve one with: python validation/approve.py "
+                                        "--question <id> --by <you>. Nothing has been "
+                                        "changed automatically. Detail: "
                                     ),
                                 },
                                 event_field("alert_detail"),

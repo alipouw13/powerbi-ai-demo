@@ -219,7 +219,21 @@ def build_cells() -> list[dict]:
     cells.append(code(KUSTO_CELL))
 
     cells.append(md(
-        "## 10. Alert payload\n"
+        "## 10. Verify past remediations\n"
+        "\n"
+        "A fix is not verified because it merged. It is verified because the\n"
+        "question it was aimed at now passes repeatedly.\n"
+        "\n"
+        "This marks a remediation verified when its question reaches stable pass\n"
+        "in a run that started after the change was applied. Until then it sits\n"
+        "as applied and unverified, which is an honest state and a useful one:\n"
+        "it is the list of changes somebody made that have not yet been shown\n"
+        "to work."
+    ))
+    cells.append(code(VERIFY_CELL))
+
+    cells.append(md(
+        "## 11. Alert payload\n"
         "\n"
         "The thresholds live in tested Python rather than being buried in a rule\n"
         "definition in the portal. Activator reads `alert_severity` and\n"
@@ -499,6 +513,7 @@ result_rows = [
 
 spark.createDataFrame(result_rows, schema=results_schema) \\
      .write.mode("append").format("delta").saveAsTable(lh + results_table)
+results_df = spark.table(lh + results_table).filter(F.col("run_id") == run_id)
 
 defects_schema = StructType([
     StructField("run_id", StringType()),
@@ -540,6 +555,100 @@ print(f"previous score {previous_score} -> {summary['score']}")
 '''
 
 
+VERIFY_CELL = '''from pyspark.sql.types import BooleanType
+
+# A remediation is verified when the question it targeted reaches stable pass
+# in a run that started after the change was applied. Anything earlier proves
+# nothing, because the model had not changed yet.
+#
+# Kusto is append only, so "verified" is recorded by appending a corrected row
+# rather than updating the original. recorded_ts is the ordering key, not
+# applied_ts: the correction carries the original applied_ts so the history
+# stays truthful, which would make an arg_max on applied_ts a coin toss
+# between the two rows.
+remediations_schema = StructType([
+    StructField("remediation_id", StringType()),
+    StructField("recorded_ts", TimestampType()),
+    StructField("applied_ts", TimestampType()),
+    StructField("approval_id", StringType()),
+    StructField("question_id", StringType()),
+    StructField("instruction_target", StringType()),
+    StructField("instruction", StringType()),
+    StructField("approved_by", StringType()),
+    StructField("applied_by", StringType()),
+    StructField("dry_run", BooleanType()),
+    StructField("backup_path", StringType()),
+    StructField("persisted", BooleanType()),
+    StructField("verified", BooleanType()),
+    StructField("verified_ts", TimestampType()),
+    StructField("verified_run_id", StringType()),
+])
+
+stable_now = {r.question_id for r in ordered if r.classification == STABLE_PASS}
+verified_rows = []
+
+# Compare epochs, not datetimes. run_ts is timezone aware; a timestamp read
+# back through the Spark connector is naive and carries the session timezone,
+# so comparing them directly raises TypeError, and "fixing" that by dropping
+# the tzinfo would silently reintroduce the bug this check exists to prevent.
+run_epoch = run_ts.timestamp()
+
+try:
+    unverified = read_kusto("""
+        eval_remediations
+        | where persisted == true
+        | summarize arg_max(recorded_ts, *) by remediation_id
+        | where verified == false
+        | extend applied_epoch = todouble(datetime_diff('second', applied_ts, datetime(1970-01-01)))
+    """).collect()
+except Exception as exc:  # noqa: BLE001
+    # A missing table on the very first run is expected. Anything else is a
+    # real failure and must not be reported as "nothing to verify", because
+    # this runs unattended on a schedule and nobody would ever find out.
+    message = str(exc).lower()
+    if "not found" in message or "could not be resolved" in message or "does not exist" in message:
+        print("no remediation history yet, nothing to verify")
+        unverified = []
+    else:
+        raise
+
+for row in unverified:
+    if row["question_id"] not in stable_now:
+        continue
+    applied_epoch = row["applied_epoch"]
+    if applied_epoch is not None and run_epoch <= applied_epoch:
+        # This run started before the fix landed, so it cannot be evidence.
+        continue
+    verified_rows.append(Row(
+        remediation_id=row["remediation_id"],
+        recorded_ts=run_ts,
+        applied_ts=row["applied_ts"],
+        approval_id=row["approval_id"],
+        question_id=row["question_id"],
+        instruction_target=row["instruction_target"],
+        instruction=row["instruction"],
+        approved_by=row["approved_by"],
+        applied_by=row["applied_by"],
+        dry_run=row["dry_run"],
+        backup_path=row["backup_path"],
+        persisted=True,
+        verified=True,
+        verified_ts=run_ts,
+        verified_run_id=run_id,
+    ))
+
+if verified_rows:
+    to_kusto(
+        spark.createDataFrame(verified_rows, schema=remediations_schema),
+        "eval_remediations",
+    )
+    for row in verified_rows:
+        print(f"verified: {row['question_id']} reached stable pass after its fix")
+else:
+    print("no remediations became verified in this run")
+'''
+
+
 KUSTO_CELL = '''import notebookutils
 
 kusto_token = notebookutils.credentials.getToken(KUSTO_URI)
@@ -559,7 +668,22 @@ def to_kusto(df, table):
     print(f"published {df.count()} row(s) to {KUSTO_DB}.{table}")
 
 
+def read_kusto(query):
+    return (
+        spark.read.format("com.microsoft.kusto.spark.synapse.datasource")
+        .option("kustoCluster", KUSTO_URI)
+        .option("kustoDatabase", KUSTO_DB)
+        .option("kustoQuery", query)
+        .option("accessToken", kusto_token)
+        .load()
+    )
+
+
 to_kusto(runs_df, "eval_runs")
+
+# Per-attempt results too, so that evidence for a defect is available to the
+# dashboard and to file_issues.py without anyone opening a lakehouse.
+to_kusto(results_df, "eval_results")
 
 # Defects carry the literal instruction a human is asked to approve, so the
 # dashboard can show the exact text rather than a description of it.

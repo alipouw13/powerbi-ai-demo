@@ -96,13 +96,19 @@ REMEDIATION_QUEUE = """eval_defects
 | summarize arg_max(run_ts, *) by question_id
 | join kind=leftouter (
     eval_approvals
-    | summarize arg_max(approved_ts, decision, approved_by, applied) by question_id
+    | summarize arg_max(approved_ts, decision, approved_by, approval_id) by question_id
   ) on question_id
+| join kind=leftouter (
+    eval_remediations
+    | where persisted == true
+    | summarize arg_max(recorded_ts, verified) by approval_id
+  ) on approval_id
 | extend ['Status'] = case(
       isempty(decision), "awaiting approval",
-      decision == "approved" and applied, "applied",
-      decision == "approved", "approved, not yet applied",
-      "rejected")
+      decision == "rejected", "rejected",
+      isempty(approval_id1), "approved, not yet applied",
+      verified, "applied and verified",
+      "applied, not yet verified")
 | project ['Question']=question_id,
           ['Problem']=classification,
           ['Add this to the model AI instructions']=proposed_instruction,

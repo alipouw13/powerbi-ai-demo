@@ -155,8 +155,40 @@ class TestRemediationNotebook(unittest.TestCase):
         self.assertIn("APPROVED_BY is required", self.joined)
 
     def test_only_acts_on_approved_and_unapplied_rows(self) -> None:
-        self.assertIn('decision") == "approved"', self.joined)
-        self.assertIn('applied") == False', self.joined)
+        self.assertIn('decision == "approved"', self.joined)
+        # Open work is derived by anti-joining persisted remediations, not
+        # read from a mutable flag, because Kusto cannot update a row.
+        self.assertIn("leftanti", self.joined)
+        self.assertIn("persisted == true", self.joined)
+
+    def test_reads_approvals_from_the_eventhouse_not_delta(self) -> None:
+        # One approval store. The Delta copy used to be reconciled by hand.
+        self.assertIn("read_kusto", self.joined)
+        self.assertNotIn("eval_approvals", self.joined.split("open_approvals_kql")[0])
+
+    def test_never_mutates_an_approval(self) -> None:
+        # An append only store has no UPDATE. State is derived instead.
+        self.assertNotIn("spark.sql(f\"\"\"\n            UPDATE", self.joined)
+        self.assertNotIn("SET applied", self.joined)
+        self.assertNotIn("applied = true", self.joined)
+
+    def test_links_each_remediation_to_its_approval(self) -> None:
+        # approval_id is what closes the approval, so it has to be carried.
+        self.assertIn('approval_id=row["approval_id"]', self.joined)
+
+    def test_approval_is_only_consumed_when_persisted(self) -> None:
+        self.assertIn("persisted=bool(was_persisted)", self.joined)
+
+    def test_already_present_instruction_still_closes_the_approval(self) -> None:
+        # Otherwise an approval applied by an earlier run, or by a person,
+        # sits open forever and nobody is prompted about it again.
+        self.assertIn("already_present", self.joined)
+        self.assertIn("remediation_row(r, True) for r in already_present", self.joined)
+
+    def test_dry_run_records_nothing(self) -> None:
+        # A dry run that wrote a persisted remediation would close the
+        # approval without changing the model.
+        self.assertIn("if rows and not DRY_RUN:", self.joined)
 
     def test_refuses_non_model_instruction_targets(self) -> None:
         # Agent instructions do not reach DAX generation, so applying a
@@ -202,19 +234,27 @@ class TestRemediationNotebook(unittest.TestCase):
         # no-op, so the run must say who it was.
         self.assertIn("executing_identity", self.joined)
 
-    def test_approval_is_only_consumed_when_persisted(self) -> None:
-        self.assertIn("not DRY_RUN and persisted", self.joined)
-
-    def test_already_present_instruction_still_closes_the_approval(self) -> None:
-        # Otherwise an approval applied by an earlier run, or by a person,
-        # sits open forever and nobody is prompted about it again.
-        self.assertIn("already_present", self.joined)
-        self.assertIn("satisfied", self.joined)
-
     def test_backup_path_is_always_defined(self) -> None:
         # It is referenced by the record cell on every path, so it must be
         # initialised before the branch rather than only inside it.
         self.assertIn('backup_path = ""', self.joined)
+
+    def test_coerces_dry_run_from_a_string(self) -> None:
+        # Activator injects parameters as strings, and "false" is truthy in
+        # Python, which would turn every automated remediation into a silent
+        # no-op that reports success.
+        self.assertIn('str(DRY_RUN).strip().lower() not in', self.joined)
+
+    def test_refuses_to_write_over_a_concurrent_change(self) -> None:
+        # This is a read-modify-write of the whole model, so two overlapping
+        # runs would each replace it from their own stale snapshot and the
+        # second would discard the first one's instruction.
+        self.assertIn("the model changed while this run was preparing", self.joined)
+
+    def test_records_an_ordering_key_distinct_from_applied_ts(self) -> None:
+        # A verification appends a corrected row carrying the original
+        # applied_ts, so applied_ts cannot be the arg_max key.
+        self.assertIn("recorded_ts=now", self.joined)
 
 
 class TestEmbeddedHarnessBehavesLikeTheModule(unittest.TestCase):

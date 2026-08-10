@@ -828,6 +828,20 @@ def propose_fixes(
 REMEDIATION_HEADING = "## Automated remediation"
 
 
+def instruction_present(existing: str, instruction: str) -> bool:
+    """Is this exact instruction already one of the lines in the text.
+
+    Deliberately a line match rather than a substring test. A shorter, more
+    general sentence can easily be a substring of a longer one somebody wrote
+    earlier, and treating that as "already present" would close an approval
+    without the instruction ever having been added.
+    """
+    target = (instruction or "").strip()
+    if not target:
+        return False
+    return any(line.strip() == target for line in (existing or "").splitlines())
+
+
 def merge_instruction(existing: str, instruction: str) -> tuple[str, bool]:
     """Append an approved instruction under a stable heading.
 
@@ -842,7 +856,7 @@ def merge_instruction(existing: str, instruction: str) -> tuple[str, bool]:
 
     if not instruction:
         return existing, False
-    if instruction in existing:
+    if instruction_present(existing, instruction):
         return existing, False
 
     if REMEDIATION_HEADING in existing:

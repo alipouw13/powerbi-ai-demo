@@ -523,6 +523,33 @@ class TestInstructionMerge(unittest.TestCase):
         for line in original.splitlines():
             self.assertIn(line, merged)
 
+    def test_a_substring_of_another_line_is_not_already_present(self) -> None:
+        # The bug this replaced: a raw substring test would report "already
+        # present" for a short sentence contained in a longer one, closing an
+        # approval for an instruction the model never received.
+        longer = (
+            "When a question does not state a time period, use all available data "
+            "and also mention the currency."
+        )
+        shorter = "When a question does not state a time period, use all available data"
+        self.assertFalse(eh.instruction_present(longer, shorter))
+        merged, changed = eh.merge_instruction(longer, shorter)
+        self.assertTrue(changed, "a distinct instruction must still be added")
+        self.assertIn(shorter, merged)
+
+    def test_exact_line_match_is_still_idempotent(self) -> None:
+        once, _ = eh.merge_instruction("Existing.", self.LINE)
+        twice, changed = eh.merge_instruction(once, self.LINE)
+        self.assertFalse(changed)
+        self.assertEqual(once, twice)
+
+    def test_instruction_present_matches_whole_lines_only(self) -> None:
+        text = "Alpha beta gamma.\nDelta epsilon."
+        self.assertTrue(eh.instruction_present(text, "Delta epsilon."))
+        self.assertTrue(eh.instruction_present(text, "  Delta epsilon.  "))
+        self.assertFalse(eh.instruction_present(text, "beta"))
+        self.assertFalse(eh.instruction_present(text, ""))
+
     def test_empty_instruction_changes_nothing(self) -> None:
         merged, changed = eh.merge_instruction("Existing.", "")
         self.assertFalse(changed)
