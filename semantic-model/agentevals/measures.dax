@@ -8,7 +8,7 @@
 // that nothing can sum a per-run score across runs.
 //
 // Every measure has a description. Copilot reads the first 200
-// characters, so the business meaning comes first. 35 measures.
+// characters, so the business meaning comes first. 36 measures.
 
 // -------------------------------------------------------------------------
 // Score
@@ -313,4 +313,16 @@ CALCULATE ( [Feedback Items], 'Feedback'[Verdict] IN { "wrong", "misleading" } )
 // Description: Feedback nobody has looked at yet.
 Untriaged Feedback =
 CALCULATE ( [Feedback Items], 'Feedback'[Triage Status] = "new" )
+
+// -------------------------------------------------------------------------
+// Report bindings
+// -------------------------------------------------------------------------
+
+// Description: The question currently selected in the approval queue, so the
+// approval button can pass it to the user data function. Blank unless
+// exactly one question is selected, which stops a decision being recorded
+// against an ambiguous selection. This is report plumbing rather than an
+// analysis measure.
+Selected Question ID =
+SELECTEDVALUE ( 'Questions'[Question ID] )
 

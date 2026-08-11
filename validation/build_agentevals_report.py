@@ -560,7 +560,9 @@ def page_two() -> list[dict]:
         kpi_card(P2, "verified", "Remediations", "Verified Fix %",
                  "Verified fix %", GOOD, CARD_X[4]),
 
-        # The queue. Select a row to choose the question the button acts on.
+        # The queue. Selecting a row here is what puts one question in filter
+        # context, which is what [Selected Question ID] reads and the approval
+        # button passes to the user data function.
         table_visual(P2, "queue", "Proposed fixes awaiting a decision",
                      40, ROW2_Y - 16, 780, 206, columns=[
                          (column("Questions", "Question ID"),

@@ -64,8 +64,8 @@ visual that uses columns from two fact tables.
 | Tile | Reads |
 | --- | --- |
 | Five KPI cards | `Defects In Latest Run`, `Awaiting Apply`, `Approved`, `Rejected`, `Verified Fix %` |
-| Proposed fixes awaiting a decision | The queue. Select a row to choose the question |
-| Decisions already written back | What the function has recorded, and who recorded it |
+| **Proposed fixes awaiting a decision** (left table) | The queue. Selecting a row is what chooses the question the button acts on |
+| **Decisions already written back** (right table) | What the function has recorded, and who recorded it |
 | Two input slicers, and a button | The decision, the note, and submit |
 | Defects by fix tier | Tier 1 is safe to apply, tier 3 is a human judgement |
 
@@ -80,8 +80,9 @@ The report ships with the button in place and the action unbound, because the
 binding names a workspace, a function set and a function by id. Those are
 tenant facts, and this repo keeps them out of source control.
 
-In the Power BI service, edit the report, select the button, and in
-**Format button** > **Action** set:
+In the Power BI service, edit the report, go to **Review & Approve Fixes**,
+select the button under *Then submit your decision:*, and in **Format button**
+> **Action** set:
 
 | Parameter | Value |
 | --- | --- |
@@ -89,11 +90,36 @@ In the Power BI service, edit the report, select the button, and in
 | Workspace | the workspace holding the loop |
 | Function set | `Approve remediation` |
 | Data function | `approve_remediation` |
-| `questionId` | the **Question ID** field from the queue table, summarisation `First` |
+| `questionId` | **fx** > Format style `Field value` > `Questions` > **Selected Question ID** |
 | `decision` | the **Decision (approved or rejected)** input slicer |
 | `note` | the **Note for the record** input slicer |
 
 Turn **Auto clear** on, so the note does not carry over to the next decision.
+
+### Why `questionId` binds to a measure, not to the Question ID column
+
+Picking the column gives you:
+
+> This field can't be used here because the data model has discourage implicit
+> measures property enabled, and a measure is required here.
+
+That is this model's `discourageImplicitMeasures` setting, and it is doing its
+job. A field-value binding needs an aggregation, and the model switches
+implicit aggregations off so that nobody can quietly sum a per-run score.
+
+`Selected Question ID` is the measure to bind instead, and it is a better
+binding rather than a workaround:
+
+```dax
+Selected Question ID = SELECTEDVALUE ( 'Questions'[Question ID] )
+```
+
+Binding to the column would have needed `First` or `Max`, which silently picks
+one row out of however many are selected and records a decision against a
+question the approver did not mean. `SELECTEDVALUE` returns blank unless
+exactly one question is in context, so an ambiguous selection cannot be
+approved at all. Selecting a row in **Proposed fixes awaiting a decision** is
+what puts one question in context.
 
 While you are in that pane, set the button's **Text** to `Submit decision` and
 its **Fill** to `#4C7DF0`. The generated definition already carries both, and

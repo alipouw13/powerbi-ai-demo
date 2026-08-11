@@ -475,6 +475,7 @@ DEFECTS = "Defects"
 APPROVALS = "Approvals"
 REMEDIATION = "Remediation"
 FEEDBACK = "Feedback"
+BINDINGS = "Report bindings"
 
 
 def latest_of(column: str) -> str:
@@ -776,6 +777,30 @@ MEASURES: list[Measure] = [
         "Feedback nobody has looked at yet.",
         "#,##0", FEEDBACK,
     ),
+
+    # ---- Report bindings -------------------------------------------------
+    #
+    # The approval button passes the selected question to the user data
+    # function. A data function parameter is bound through conditional
+    # formatting, which needs a measure rather than a column: this model sets
+    # discourageImplicitMeasures, so a column offers no aggregation to bind to
+    # and Power BI refuses it with "a measure is required here".
+    #
+    # SELECTEDVALUE is the right answer rather than a workaround. Binding to a
+    # column would need an aggregation like First or Max, which silently picks
+    # one row out of many and records a decision against a question the
+    # approver did not mean. This returns blank unless exactly one question is
+    # in context, so an ambiguous selection cannot be approved at all.
+    Measure(
+        "Questions", "Selected Question ID",
+        "SELECTEDVALUE ( 'Questions'[Question ID] )",
+        "The question currently selected in the approval queue, so the "
+        "approval button can pass it to the user data function. Blank unless "
+        "exactly one question is selected, which stops a decision being "
+        "recorded against an ambiguous selection. This is report plumbing "
+        "rather than an analysis measure.",
+        "", BINDINGS,
+    ),
 ]
 
 
@@ -983,7 +1008,8 @@ def build_measures_doc() -> str:
         f"// characters, so the business meaning comes first. {len(MEASURES)} measures.",
         "",
     ]
-    for folder in (SCORE, QUALITY, DEFECTS, APPROVALS, REMEDIATION, FEEDBACK):
+    for folder in (SCORE, QUALITY, DEFECTS, APPROVALS, REMEDIATION, FEEDBACK,
+                   BINDINGS):
         lines.append("// " + "-" * 73)
         lines.append(f"// {folder}")
         lines.append("// " + "-" * 73)

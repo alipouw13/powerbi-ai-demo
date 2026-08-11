@@ -307,6 +307,57 @@ class TestTheWritebackPage(unittest.TestCase):
                 self.assertIn(name, text)
 
 
+class TestTheApprovalButtonHasSomethingToBindTo(unittest.TestCase):
+    """The writeback breaks without this, and it breaks in the portal.
+
+    A data function parameter is bound through conditional formatting, which
+    needs an aggregation. This model sets discourageImplicitMeasures, so a
+    column offers none and Power BI refuses it outright:
+
+        This field can't be used here because the data model has discourage
+        implicit measures property enabled, and a measure is required here.
+
+    Nothing in the report definition can catch that, because the binding is
+    not in the report definition. This is the guard instead.
+    """
+
+    NAME = "Selected Question ID"
+
+    def measure(self) -> model.Measure:
+        found = [m for m in model.MEASURES if m.name == self.NAME]
+        self.assertEqual(len(found), 1,
+                         f"{self.NAME} is what the approval button binds to")
+        return found[0]
+
+    def test_the_binding_measure_exists(self) -> None:
+        self.measure()
+
+    def test_it_is_selectedvalue_not_an_aggregation(self) -> None:
+        """First or Max would approve a fix for a question nobody chose."""
+        expression = self.measure().expression
+        self.assertIn("SELECTEDVALUE", expression)
+        for aggregate in ("FIRSTNONBLANK", "MAX (", "MIN (", "TOPN"):
+            with self.subTest(aggregate=aggregate):
+                self.assertNotIn(aggregate, expression)
+
+    def test_it_reads_the_question_the_queue_selects(self) -> None:
+        self.assertIn("'Questions'[Question ID]", self.measure().expression)
+
+    def test_it_is_kept_out_of_the_analysis_folders(self) -> None:
+        """It answers no business question, so it should not look like one."""
+        self.assertEqual(self.measure().folder, model.BINDINGS)
+
+    def test_the_model_still_discourages_implicit_measures(self) -> None:
+        """If this is ever turned off, the measure stops being necessary.
+
+        It would still be the safer binding, so this is a prompt to re-read
+        the reasoning rather than a rule.
+        """
+        import build_agentevals_model as m
+
+        self.assertIn("discourageImplicitMeasures", m.model_tmdl())
+
+
 class TestGeneratedPartsAreComplete(unittest.TestCase):
     REQUIRED = (
         "definition.pbir",

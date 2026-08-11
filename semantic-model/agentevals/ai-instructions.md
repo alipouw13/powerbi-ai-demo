@@ -132,7 +132,7 @@ over this model, or the two surfaces will disagree.
 
 **Include**
 
-- All 35 measures from [`measures.dax`](measures.dax)
+- All 35 analysis measures from [`measures.dax`](measures.dax)
 - `Questions`: `Question ID`, `Question Kind`, `Question Text`, `What It Tests`
 - `Evaluation Runs`: `Run Time`, `Surface`, `Question Bank Version`,
   `Alert Severity`
@@ -155,6 +155,10 @@ over this model, or the two surfaces will disagree.
   try to summarise into an answer rather than count.
 - `Approvals` / `Feedback`: `Approver Object ID`, `Submitter Object ID`.
 - `Questions`: `Bank Version`, `Published`. Version metadata, not analysis.
+- `Selected Question ID`, the one measure in the **Report bindings** folder.
+  It exists so the approval button can pass the selected question to the user
+  data function, and it answers no business question: offered to Copilot it
+  would be quoted as though it meant something.
 
 ---
 
