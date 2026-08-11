@@ -217,6 +217,35 @@ The important instruction is the one about summing: *scores belong to a single
 run and must never be added together.* The model that measures AI accuracy has
 to survive being asked about by AI.
 
+### Closing the loop in the report
+
+The report over that model is a translytical task flow, built the same way:
+
+```bash
+python validation/build_agentevals_report.py --apply
+```
+
+Two pages. **Agent Answer Quality** is the evidence: score, the split of
+grades, every question with the answer it got, and the sentence the harness
+proposes as a fix. **Review & Approve Fixes** is the decision: the queue, an
+input slicer for the decision and one for the note, and a button bound to the
+`approve_remediation` user data function, which writes the row to
+`dbo.approvals`.
+
+It is deliberately the same shape as the product-reviews translytical demo,
+because the shapes are the same: a question is the product, an answer is the
+review, the harness's proposed instruction is the agent comment, and the
+approval is the employee comment written back.
+
+With one difference. In that demo the employee comment is the outcome. Here
+approving only records a decision — the notebook applies it and the next run
+proves it worked — so the page counts *approved*, *awaiting apply* and
+*verified* separately and says why. A report that collapsed them would claim a
+fix nobody has written.
+
+[`semantic-model/agentevals/report.md`](../semantic-model/agentevals/report.md)
+covers the layout and the one manual step, binding the button to the function.
+
 ---
 
 ## Repo checks before you present

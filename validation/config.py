@@ -34,6 +34,7 @@ tenant identifiers:
 | `FABRIC_LAKEHOUSE_NAME` | `LH_ContosoCoffee` |
 | `FABRIC_SEMANTIC_MODEL_NAME` | `ContosoCoffee` |
 | `FABRIC_AGENTEVALS_MODEL_NAME` | `AgentEvals` |
+| `FABRIC_AGENTEVALS_REPORT_NAME` | `AgentEvals` |
 
 Set them once per shell:
 
@@ -71,6 +72,9 @@ SEMANTIC_MODEL_NAME = os.environ.get(
 # above: that one is the thing being measured, this one measures it.
 AGENTEVALS_MODEL_NAME = os.environ.get(
     "FABRIC_AGENTEVALS_MODEL_NAME", "AgentEvals"
+).strip()
+AGENTEVALS_REPORT_NAME = os.environ.get(
+    "FABRIC_AGENTEVALS_REPORT_NAME", "AgentEvals"
 ).strip()
 
 RECIPIENTS = [

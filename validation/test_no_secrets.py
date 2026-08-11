@@ -219,6 +219,7 @@ class TestDeploymentScriptsRequireConfiguration(unittest.TestCase):
         "build_approval_function.py": ["FABRIC_WORKSPACE_ID"],
         "build_sql_schema.py": ["FABRIC_WORKSPACE_ID"],
         "build_agentevals_model.py": ["FABRIC_WORKSPACE_ID"],
+        "build_agentevals_report.py": ["FABRIC_WORKSPACE_ID"],
         "apply_schema.py": ["FABRIC_SQL_CONNECTION_STRING"],
         "approve.py": ["FABRIC_KUSTO_URI"],
         "file_issues.py": ["FABRIC_KUSTO_URI"],
