@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import build_agent_remediation_notebook as agent_builder  # noqa: E402
 import build_eval_notebook as builder  # noqa: E402
+import build_mirror_notebook as mirror_builder  # noqa: E402
 import build_remediation_notebook as remediation_builder  # noqa: E402
 import publish_question_bank as bank  # noqa: E402
 
@@ -28,6 +29,9 @@ REMEDIATION_NOTEBOOK = (
 )
 AGENT_NOTEBOOK = (
     Path(__file__).resolve().parent.parent / "fabric" / "agent_remediate_agent.ipynb"
+)
+MIRROR_NOTEBOOK = (
+    Path(__file__).resolve().parent.parent / "fabric" / "mirror_approvals.ipynb"
 )
 
 
@@ -48,6 +52,107 @@ class TestNotebookMatchesSource(unittest.TestCase):
             "fabric/agent_eval.ipynb is stale. Run "
             "python validation/build_eval_notebook.py and commit the result.",
         )
+
+
+class TestMirrorNotebook(unittest.TestCase):
+    """The mirror had no tests at all, which is how it shipped broken.
+
+    It ran every minute, failed every time, and succeeded whenever anybody
+    tested it by hand straight after approving something. That looked like a
+    scheduling fault for a day. The cause was one line that assumed a query
+    always returns something iterable.
+    """
+
+    def setUp(self) -> None:
+        self.nb = json.loads(MIRROR_NOTEBOOK.read_text(encoding="utf-8"))
+        self.code_cells = [c for c in self.nb["cells"] if c["cell_type"] == "code"]
+        self.source = "\n".join("".join(c["source"]) for c in self.code_cells)
+
+    def test_no_drift(self) -> None:
+        self.assertEqual(
+            self.nb, mirror_builder.build_notebook(),
+            "fabric/mirror_approvals.ipynb is stale. Run "
+            "python validation/build_mirror_notebook.py and commit the result.",
+        )
+
+    def test_every_code_cell_compiles(self) -> None:
+        for index, cell in enumerate(self.code_cells):
+            source = "".join(cell["source"])
+            if source.lstrip().startswith("%"):
+                continue
+            with self.subTest(cell=index):
+                try:
+                    ast.parse(source)
+                except SyntaxError as exc:
+                    self.fail(f"code cell {index} does not parse: {exc}")
+
+    def sql_rows(self):
+        """Lift sql_rows out of the notebook and make it callable.
+
+        Executing the whole cell would need notebookutils and a live
+        workspace, so only the function is compiled. That keeps this a real
+        test of the shipped code rather than of a copy.
+        """
+        tree = ast.parse(self.source)
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name == "sql_rows":
+                namespace: dict = {}
+                exec(compile(ast.Module([node], []), "<sql_rows>", "exec"),  # noqa: S102
+                     namespace)
+                return namespace["sql_rows"]
+        self.fail("the mirror notebook has no sql_rows helper")
+
+    def test_no_rows_to_mirror_is_not_an_error(self) -> None:
+        """The steady state. Almost every run has nothing to copy.
+
+        connect_to_artifact returns None rather than an empty frame when a
+        SELECT matches nothing, so this is the case that broke it.
+        """
+        self.assertEqual(self.sql_rows()(None), [])
+
+    def test_a_dataframe_like_result_is_converted(self) -> None:
+        class Frame:
+            def to_dict(self, orient):
+                assert orient == "records"
+                return [{"approval_id": "a"}]
+
+        self.assertEqual(self.sql_rows()(Frame()), [{"approval_id": "a"}])
+
+    def test_a_plain_iterable_result_is_accepted(self) -> None:
+        self.assertEqual(self.sql_rows()([{"approval_id": "a"}]),
+                         [{"approval_id": "a"}])
+
+    def test_nothing_iterates_a_query_result_directly(self) -> None:
+        """Every SELECT has to go through sql_rows, or None crashes it again."""
+        self.assertNotIn("list(pending)", self.source)
+        self.assertIn("sql_rows(pending)", self.source)
+
+    def test_it_is_a_python_notebook_not_spark(self) -> None:
+        """Scheduled runs use the stored metadata, not the kernel you picked.
+
+        notebookutils.data does not exist in a Spark session, so a mirror
+        stored as Spark works when you run it by hand and fails on every
+        schedule.
+        """
+        metadata = self.nb["metadata"]
+        self.assertEqual(metadata.get("kernel_info", {}).get("name"), "jupyter")
+        self.assertEqual(
+            metadata.get("microsoft", {}).get("language_group"), "jupyter_python")
+
+    def test_committed_notebook_has_no_deployment_binding(self) -> None:
+        self.assertFalse(self.nb["metadata"].get("dependencies"))
+
+    def test_parameters_are_empty_in_source_control(self) -> None:
+        params = "".join(
+            "".join(c["source"]) for c in self.code_cells
+            if "parameters" in c.get("metadata", {}).get("tags", [])
+        )
+        namespace: dict = {}
+        exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
+        for key in ("WORKSPACE_ID", "KUSTO_URI"):
+            if key in namespace:
+                with self.subTest(parameter=key):
+                    self.assertEqual(namespace[key], "")
 
 
 class TestNotebookStructure(unittest.TestCase):

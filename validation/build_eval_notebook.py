@@ -612,6 +612,44 @@ if not SQL_CONNECTION_STRING:
 else:
     import pyodbc
 
+    # Fabric hands out an ADO.NET connection string and pyodbc speaks ODBC.
+    # The two spell the same settings differently, and ODBC rejects the
+    # ADO.NET spellings rather than ignoring them, so this is a translation
+    # and not tidying.
+    #
+    # It exists so that this parameter is whatever Settings > Connection
+    # strings shows in the portal, pasted unchanged. That is also what
+    # config.py documents and what apply_schema.py expects, so the value
+    # means one thing everywhere. An already-ODBC string is passed through
+    # untouched.
+    ODBC_SPELLINGS = {
+        "Data Source=": "Server=",
+        "Initial Catalog=": "Database=",
+        "Connect Timeout=": "Connection Timeout=",
+        "Encrypt=True": "Encrypt=yes",
+        "Encrypt=False": "Encrypt=no",
+        "Trust Server Certificate=False": "TrustServerCertificate=no",
+        "Trust Server Certificate=True": "TrustServerCertificate=yes",
+        "Multiple Active Result Sets=False": "MARS_Connection=no",
+        "Multiple Active Result Sets=True": "MARS_Connection=yes",
+    }
+
+    connection_string = SQL_CONNECTION_STRING
+    if "Driver=" not in connection_string:
+        for ado_net, odbc in ODBC_SPELLINGS.items():
+            connection_string = connection_string.replace(ado_net, odbc)
+
+        # The newest driver actually present in the runtime. Naming one that
+        # is not installed fails with a TLS handshake error rather than a
+        # clear one, which is a bad half hour.
+        drivers = sorted(d for d in pyodbc.drivers()
+                         if "ODBC Driver" in d and "SQL Server" in d)
+        if not drivers:
+            raise RuntimeError(
+                "no Microsoft ODBC driver for SQL Server in this runtime"
+            )
+        connection_string = f"Driver={{{drivers[-1]}}};{connection_string}"
+
     # A Fabric SQL database takes an Entra access token rather than a
     # password, passed through the ODBC pre-login attribute. The struct
     # packing is the documented shape for SQL_COPT_SS_ACCESS_TOKEN.
@@ -619,7 +657,7 @@ else:
     encoded = sql_token.encode("utf-16-le")
     token_struct = struct.pack(f"<I{len(encoded)}s", len(encoded), encoded)
 
-    sql = pyodbc.connect(SQL_CONNECTION_STRING, attrs_before={1256: token_struct})
+    sql = pyodbc.connect(connection_string, attrs_before={1256: token_struct})
     cursor = sql.cursor()
     try:
         # MERGE rather than INSERT throughout. A notebook that is re-run after

@@ -89,6 +89,11 @@ GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "").strip()
 # rather than over the item API, so applying the schema needs this even though
 # creating the database does not. Read it from the item's connectionString
 # property, or from Settings > Connection strings in the portal.
+#
+# Paste it unchanged. It is an ADO.NET string and the two things that use it,
+# apply_schema.py and the eval notebook, both talk ODBC, so both translate it
+# themselves. Hand-converting it is how you end up with one of them working
+# and the other failing on a spelling.
 SQL_CONNECTION_STRING = os.environ.get("FABRIC_SQL_CONNECTION_STRING", "").strip()
 
 _VALUES = {

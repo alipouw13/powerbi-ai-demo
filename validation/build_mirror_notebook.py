@@ -88,6 +88,26 @@ def kusto_rows(result):
     return [dict(zip(names, row)) for row in table["Rows"]]
 
 
+def sql_rows(result):
+    """Rows from a SQL query, as a list of dicts.
+
+    connect_to_artifact returns None rather than an empty frame when a SELECT
+    matches nothing, so `list(result)` raises TypeError on the ordinary case
+    of there being nothing to mirror.
+
+    That case is the steady state, not an edge case. This notebook runs every
+    minute and almost every run has no new approvals, so a version that only
+    worked when there was something to copy failed on every scheduled run and
+    succeeded whenever anybody tested it by hand right after approving
+    something. It looked like a scheduling problem for a day.
+    """
+    if result is None:
+        return []
+    if hasattr(result, "to_dict"):
+        return result.to_dict("records")
+    return list(result)
+
+
 def escape(value):
     """Escape a value for a Kusto double quoted string literal.
 
@@ -111,7 +131,7 @@ pending = sql.query("""
     ORDER BY approved_ts
 """)
 
-rows = pending.to_dict("records") if hasattr(pending, "to_dict") else list(pending)
+rows = sql_rows(pending)
 print(f"{len(rows)} approval(s) to mirror")
 
 mirrored = []
