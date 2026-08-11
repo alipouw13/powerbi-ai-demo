@@ -17,12 +17,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import build_agent_remediation_notebook as agent_builder  # noqa: E402
 import build_eval_notebook as builder  # noqa: E402
 import build_remediation_notebook as remediation_builder  # noqa: E402
+import publish_question_bank as bank  # noqa: E402
 
 NOTEBOOK = Path(__file__).resolve().parent.parent / "fabric" / "agent_eval.ipynb"
 REMEDIATION_NOTEBOOK = (
     Path(__file__).resolve().parent.parent / "fabric" / "agent_remediate.ipynb"
+)
+AGENT_NOTEBOOK = (
+    Path(__file__).resolve().parent.parent / "fabric" / "agent_remediate_agent.ipynb"
 )
 
 
@@ -89,6 +94,45 @@ class TestNotebookStructure(unittest.TestCase):
         joined = "".join("".join(c["source"]) for c in self.code_cells)
         self.assertIn("What is our total net revenue?", joined)
         self.assertIn("Show me sales for the Northwest region.", joined)
+
+    def test_the_embedded_bank_hash_matches_the_publisher(self) -> None:
+        # A stale hash would label a run with the wrong instrument, which is
+        # worse than not recording one at all: it makes two incomparable runs
+        # look comparable.
+        params = "".join(
+            "".join(c["source"]) for c in self.code_cells
+            if "parameters" in c.get("metadata", {}).get("tags", [])
+        )
+        namespace: dict = {}
+        exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
+        self.assertEqual(namespace["BANK_SHA"], bank.bank_sha())
+
+    def test_it_publishes_to_sql_as_well_as_the_eventhouse(self) -> None:
+        joined = "".join("".join(c["source"]) for c in self.code_cells)
+        for table in ("dbo.runs", "dbo.answers", "dbo.defects"):
+            with self.subTest(table=table):
+                self.assertIn(table, joined)
+
+    def test_the_sql_publish_is_idempotent(self) -> None:
+        # Re-running after a partial failure must not double count a run, and
+        # a primary key violation halfway through is worse than a no-op.
+        joined = "".join("".join(c["source"]) for c in self.code_cells)
+        self.assertIn("MERGE dbo.runs", joined)
+        self.assertNotIn("INSERT INTO dbo.runs", joined)
+
+    def test_the_sql_publish_is_skipped_when_unconfigured(self) -> None:
+        # A deployment that has not created the database yet must still be
+        # able to run the evaluation.
+        joined = "".join("".join(c["source"]) for c in self.code_cells)
+        self.assertIn("skipping the SQL publish", joined)
+
+    def test_the_sql_publish_parameterises_every_value(self) -> None:
+        joined = "".join("".join(c["source"]) for c in self.code_cells)
+        sql_section = joined[joined.index("skipping the SQL publish"):]
+        sql_section = sql_section[:sql_section.index("VERIFY") if "VERIFY" in sql_section
+                                  else len(sql_section)]
+        self.assertNotIn('f"MERGE', sql_section)
+        self.assertNotIn("f'MERGE", sql_section)
 
     def test_embeds_the_harness_entry_points(self) -> None:
         joined = "".join("".join(c["source"]) for c in self.code_cells)
@@ -256,6 +300,137 @@ class TestRemediationNotebook(unittest.TestCase):
         # A verification appends a corrected row carrying the original
         # applied_ts, so applied_ts cannot be the arg_max key.
         self.assertIn("recorded_ts=now", self.joined)
+
+
+class TestAgentRemediationNotebook(unittest.TestCase):
+    """The agent instruction path, and the isolation that makes it safe.
+
+    Separate from agent_remediate because it installs the data agent SDK at
+    run time, and this repo has already lost a scheduled job to a pip install
+    replacing the runtime's own dependencies.
+    """
+
+    def setUp(self) -> None:
+        self.nb = json.loads(AGENT_NOTEBOOK.read_text(encoding="utf-8"))
+        self.code_cells = [c for c in self.nb["cells"] if c["cell_type"] == "code"]
+        self.joined = "".join("".join(c["source"]) for c in self.code_cells)
+
+    def test_no_drift(self) -> None:
+        self.assertEqual(
+            self.nb,
+            agent_builder.build_notebook(),
+            "fabric/agent_remediate_agent.ipynb is stale. Run "
+            "python validation/build_agent_remediation_notebook.py.",
+        )
+
+    def test_every_code_cell_compiles(self) -> None:
+        for index, cell in enumerate(self.code_cells):
+            source = "".join(cell["source"])
+            if source.lstrip().startswith("%"):
+                continue
+            with self.subTest(cell=index):
+                compile(source, f"<agent_cell_{index}>", "exec")
+
+    def test_it_has_a_parameters_cell(self) -> None:
+        tagged = [c for c in self.code_cells
+                  if "parameters" in c.get("metadata", {}).get("tags", [])]
+        self.assertEqual(len(tagged), 1)
+
+    def test_it_defaults_to_dry_run(self) -> None:
+        params = "".join(
+            "".join(c["source"]) for c in self.code_cells
+            if "parameters" in c.get("metadata", {}).get("tags", [])
+        )
+        namespace: dict = {}
+        exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
+        self.assertIs(namespace["DRY_RUN"], True)
+
+    def test_it_coerces_dry_run_from_a_string(self) -> None:
+        # A reference run passes parameters as strings, and "false" is truthy.
+        self.assertIn('str(DRY_RUN).strip().lower() not in', self.joined)
+
+    def test_it_requires_an_approver(self) -> None:
+        self.assertIn("APPROVED_BY is empty", self.joined)
+
+    def test_it_rechecks_the_target_rather_than_trusting_the_caller(self) -> None:
+        # The one guard that stops a model-class fix being applied where it
+        # can never work, recorded as persisted, and believed.
+        self.assertIn("misrouted", self.joined)
+        self.assertIn('!= TARGET_DATA_AGENT', self.joined)
+
+    def test_it_refuses_to_write_what_it_could_not_read(self) -> None:
+        # update_settings replaces the whole value, so a failed read would
+        # delete whatever a person wrote by hand.
+        self.assertIn("Could not read the agent's current instructions", self.joined)
+
+    def test_it_appends_under_one_heading(self) -> None:
+        self.assertIn("merge_instruction", self.joined)
+        self.assertIn(agent_builder.AGENT_HEADING, self.joined)
+
+    def test_it_reads_back_and_fails_loudly_on_mismatch(self) -> None:
+        self.assertIn("the write did not land", self.joined)
+
+    def test_it_only_acts_on_approved_and_unapplied_rows(self) -> None:
+        self.assertIn('decision == "approved"', self.joined)
+        self.assertIn("join kind=leftanti", self.joined)
+
+    def test_it_records_verified_as_false(self) -> None:
+        # Merging is not verifying. An evaluation run decides that.
+        self.assertIn("verified=false", self.joined)
+
+    def test_dry_run_records_nothing(self) -> None:
+        self.assertIn("DRY_RUN, not recording", self.joined)
+
+    def test_it_never_writes_a_verified_answer(self) -> None:
+        for forbidden in ("verified_answer", "set_verified_answer"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.joined)
+
+    def test_it_never_touches_the_semantic_model(self) -> None:
+        # The two paths are separate so that a broken SDK cannot damage the
+        # model. Reaching for TMSL here would undo that.
+        for forbidden in ("execute_tmsl", "get_tmsl", "CustomInstructions"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.joined)
+
+    def test_the_install_is_confined_to_this_notebook(self) -> None:
+        self.assertIn("%pip install", self.joined)
+        for other in (NOTEBOOK, REMEDIATION_NOTEBOOK):
+            # Code cells only. Both of those notebooks discuss the pip install
+            # rule in prose, and that prose is the reason the rule exists.
+            source = "".join(
+                "".join(c["source"])
+                for c in json.loads(other.read_text(encoding="utf-8"))["cells"]
+                if c["cell_type"] == "code"
+            )
+            with self.subTest(notebook=other.name):
+                self.assertNotIn("%pip install", source)
+
+
+class TestRemediationHandsOffTheAgentWork(unittest.TestCase):
+    def setUp(self) -> None:
+        nb = json.loads(REMEDIATION_NOTEBOOK.read_text(encoding="utf-8"))
+        self.joined = "".join(
+            "".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"
+        )
+
+    def test_it_splits_rather_than_refusing_everything(self) -> None:
+        self.assertIn("agent_pending", self.joined)
+        self.assertIn("TARGET_DATA_AGENT", self.joined)
+
+    def test_it_uses_a_reference_run_not_an_inline_run(self) -> None:
+        # %run would share the execution context, and the whole point of the
+        # split is that the SDK install gets its own session.
+        self.assertIn("notebookutils.notebook.run(", self.joined)
+        self.assertNotIn("%run agent_remediate_agent", self.joined)
+
+    def test_a_failed_handoff_does_not_fail_the_model_work(self) -> None:
+        # The model change has already landed and been recorded by this point.
+        self.assertIn("agent remediation failed", self.joined)
+        self.assertIn("The approvals stay open", self.joined)
+
+    def test_it_still_refuses_a_target_it_cannot_act_on(self) -> None:
+        self.assertIn("unsupported instruction targets", self.joined)
 
 
 class TestEmbeddedHarnessBehavesLikeTheModule(unittest.TestCase):

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/userDataFunction/definition/1.1.0/schema.json",
+  "runtime": "PYTHON",
+  "connectedDataSources": [],
+  "functions": [
+    {
+      "name": "approve_remediation",
+      "description": "Record a human decision about one proposed instruction. The approver is read from the caller's token, never passed in.",
+      "isPublicEndpointEnabled": false
+    },
+    {
+      "name": "submit_feedback",
+      "description": "Record what a person thinks of an answer. Evidence for triage, never an approval.",
+      "isPublicEndpointEnabled": false
+    },
+    {
+      "name": "list_pending_remediations",
+      "description": "What is waiting for a decision.",
+      "isPublicEndpointEnabled": false
+    }
+  ],
+  "libraries": {
+    "public": [
+      {
+        "name": "fabric-user-data-functions",
+        "type": "PYPI",
+        "version": "1.0"
+      }
+    ],
+    "private": []
+  }
+}

@@ -1,13 +1,23 @@
 """Create or update the Agent Accuracy Alerts activator.
 
-Builds ReflexEntities.json for an EventTrigger rule over a KQL source, then
+Builds ReflexEntities.json for EventTrigger rules over KQL sources, then
 creates the Activator item through the Fabric REST API.
 
-The rule is deliberately thin. It fires when a run publishes
-alert_severity = "high" and does nothing clever with the data. All of the
-judgement about what counts as a regression, a flake, or a lost guardrail
-lives in validation/eval_harness.py, where it is covered by unit tests. A
-threshold buried in a portal rule is a threshold nobody can test.
+Three rules, and the split between them matters:
+
+1. "High severity accuracy alert" fires when a run publishes
+   alert_severity = "high". It is about a run getting worse.
+2. "Remediation queue waiting for approval" fires when a run leaves defects
+   nobody has decided on yet. It is about work sitting still, which the
+   severity rule cannot see: a run whose severity is medium, or a queue that
+   nobody emptied after the one email it did send, both look silent.
+3. "Approved remediation, apply it" fires on a human decision and runs the
+   remediation notebook.
+
+Every rule is deliberately thin. All of the judgement about what counts as a
+regression, a flake, or a lost guardrail lives in validation/eval_harness.py,
+where it is covered by unit tests. A threshold buried in a portal rule is a
+threshold nobody can test.
 
 Usage:
     python validation/build_activator.py [--print-only]
@@ -39,6 +49,37 @@ from config import (  # noqa: E402
 
 ACTIVATOR_NAME = "Agent Accuracy Alerts"
 TEMPLATE_VERSION = "1.2.4"
+
+# One digest per run rather than one email per defect. Seven emails that each
+# say "one question needs a decision" is how a person learns to filter the
+# whole rule out.
+#
+# run_ts is the event time, and it is the reason this works at all. An
+# Activator KQL source only sees rows whose event time falls inside the window
+# it is currently polling, so a query that stamped the digest with the time the
+# queue was last emptied, or with an aggregate over all history, would sit
+# permanently outside the window and never fire. Defect rows are appended with
+# the run's own timestamp, so they arrive in the same window as the run
+# summary that the severity rule reacts to.
+PENDING_APPROVALS_QUERY = """declare query_parameters(startTime:datetime, endTime:datetime);
+eval_defects
+| where run_ts between (startTime .. endTime)
+| join kind=leftanti (
+    eval_approvals
+    | distinct question_id
+  ) on question_id
+| extend route = iff(auto_appliable == true and isnotempty(proposed_instruction),
+                     "approve", "human")
+| summarize pending_count = count(),
+            approvable_count = countif(route == "approve"),
+            needs_human_count = countif(route == "human"),
+            questions = strcat_array(make_list(question_id), ", ")
+    by run_ts
+| where pending_count > 0
+| extend queue_state = "pending"
+| project run_ts, queue_state, pending_count, approvable_count,
+          needs_human_count, questions
+| order by run_ts asc"""
 
 # Return every run and let the rule decide. The skill guidance is explicit
 # that the KQL query is the data source, not the rule engine.
@@ -328,6 +369,235 @@ def build_entities() -> list[dict]:
     }
 
     # ----------------------------------------------------------------------
+    # The queue rule: work that is sitting still
+    # ----------------------------------------------------------------------
+    #
+    # The severity rule answers "did this run get worse". It cannot answer
+    # "is anything waiting for me", and those are different questions. A run
+    # can be steady at medium severity, or high severity can have alerted
+    # once a week ago, while seven defects sit in the queue with nobody
+    # deciding on them. This rule is the one that says so.
+
+    pending_source_id = str(uuid.uuid4())
+    pending_event_id = str(uuid.uuid4())
+    pending_rule_id = str(uuid.uuid4())
+
+    pending_source = {
+        "uniqueIdentifier": pending_source_id,
+        "payload": {
+            "name": "Remediation queue",
+            "runSettings": {"executionIntervalInSeconds": 300},
+            "query": {"queryString": PENDING_APPROVALS_QUERY},
+            "eventhouseItem": {
+                "itemId": KQL_DATABASE_ID,
+                "workspaceId": WORKSPACE_ID,
+                "itemType": "KustoDatabase",
+            },
+            "queryParameters": [
+                {"name": "startTime", "type": "DURATION_START",
+                 "value": "2026-01-01T00:00:00Z"},
+                {"name": "endTime", "type": "DURATION_END",
+                 "value": "2026-01-01T00:05:00Z"},
+            ],
+            "eventTimeSettings": {
+                "timeFieldName": "run_ts",
+                "ingestionDelayInSeconds": 120,
+                "timeZone": "UTC",
+            },
+            "metadata": {
+                "workspaceId": WORKSPACE_ID,
+                "measureName": "",
+                "querySetId": "",
+                "queryId": "",
+            },
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+        },
+        "type": "kqlSource-v1",
+    }
+
+    pending_event = {
+        "uniqueIdentifier": pending_event_id,
+        "payload": {
+            "name": "Approval queue",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+            "definition": {
+                "type": "Event",
+                "instance": stringify({
+                    "templateId": "SourceEvent",
+                    "templateVersion": TEMPLATE_VERSION,
+                    "steps": [{
+                        "name": "SourceEventStep",
+                        "id": str(uuid.uuid4()),
+                        "rows": [{
+                            "name": "SourceSelector",
+                            "kind": "SourceReference",
+                            "arguments": [{
+                                "name": "entityId", "type": "string",
+                                "value": pending_source_id,
+                            }],
+                        }],
+                    }],
+                }),
+            },
+        },
+        "type": "timeSeriesView-v1",
+    }
+
+    pending_rule_template = {
+        "templateId": "EventTrigger",
+        "templateVersion": TEMPLATE_VERSION,
+        "steps": [
+            {
+                "name": "FieldsDefaultsStep",
+                "id": str(uuid.uuid4()),
+                "rows": [{
+                    "name": "EventSelector",
+                    "kind": "Event",
+                    "arguments": [{
+                        "kind": "EventReference",
+                        "type": "complex",
+                        "name": "event",
+                        "arguments": [{
+                            "name": "entityId", "type": "string",
+                            "value": pending_event_id,
+                        }],
+                    }],
+                }],
+            },
+            {
+                # The count test is in the query, not here. queue_state only
+                # exists on rows the query already decided are worth sending,
+                # so the portal rule stays a string comparison and the logic
+                # stays somewhere a test can reach it.
+                "name": "EventDetectStep",
+                "id": str(uuid.uuid4()),
+                "rows": [
+                    {
+                        "name": "EventFieldSelector",
+                        "kind": "EventField",
+                        "arguments": [{
+                            "name": "fieldName", "type": "string",
+                            "value": "queue_state",
+                        }],
+                    },
+                    {
+                        "name": "TextValueCondition",
+                        "kind": "TextValueCondition",
+                        "arguments": [
+                            {"name": "op", "type": "string", "value": "IsEqualTo"},
+                            {"name": "value", "type": "string", "value": "pending"},
+                        ],
+                    },
+                ],
+            },
+            {
+                "name": "ActStep",
+                "id": str(uuid.uuid4()),
+                "rows": [{
+                    "name": "EmailBinding",
+                    "kind": "EmailMessage",
+                    "arguments": [
+                        {"name": "messageLocale", "type": "string", "value": "en-us"},
+                        {
+                            "name": "sentTo",
+                            "type": "array",
+                            "values": [
+                                {"type": "string", "value": r} for r in RECIPIENTS
+                            ],
+                        },
+                        {"name": "copyTo", "type": "array", "values": []},
+                        {"name": "bCCTo", "type": "array", "values": []},
+                        {
+                            "name": "subject",
+                            "type": "array",
+                            "values": [{
+                                "type": "string",
+                                "value": "Data agent accuracy: remediations waiting for approval",
+                            }],
+                        },
+                        {
+                            "name": "headline",
+                            "type": "array",
+                            "values": [{
+                                "type": "string",
+                                "value": (
+                                    "An evaluation run left defects that nobody has "
+                                    "approved or rejected yet."
+                                ),
+                            }],
+                        },
+                        {
+                            "name": "optionalMessage",
+                            "type": "array",
+                            "values": [
+                                {
+                                    "type": "string",
+                                    "value": (
+                                        "Nothing has been changed automatically, and "
+                                        "nothing will be until a person approves a "
+                                        "specific sentence. Open the Agent Accuracy "
+                                        "dashboard, read the remediation queue, then "
+                                        "approve or reject each line with: python "
+                                        "validation/approve.py --question <id> --by "
+                                        "<you>. Questions waiting: "
+                                    ),
+                                },
+                                event_field("questions"),
+                            ],
+                        },
+                        {
+                            "name": "additionalInformation",
+                            "type": "array",
+                            "values": [
+                                {
+                                    "kind": "NameReferencePair",
+                                    "type": "complex",
+                                    "arguments": [
+                                        {"name": "name", "type": "string", "value": name},
+                                        {
+                                            "kind": "EventFieldReference",
+                                            "type": "complexReference",
+                                            "name": "reference",
+                                            "arguments": [
+                                                {
+                                                    "name": "fieldName",
+                                                    "type": "string",
+                                                    "value": name,
+                                                }
+                                            ],
+                                        },
+                                    ],
+                                }
+                                for name in (
+                                    "pending_count",
+                                    "approvable_count",
+                                    "needs_human_count",
+                                    "questions",
+                                )
+                            ],
+                        },
+                    ],
+                }],
+            },
+        ],
+    }
+
+    pending_rule = {
+        "uniqueIdentifier": pending_rule_id,
+        "payload": {
+            "name": "Remediation queue waiting for approval",
+            "description": "Created by: skills-for-fabric",
+            "parentContainer": {"targetUniqueIdentifier": container_id},
+            "definition": {
+                "type": "Rule",
+                "instance": stringify(pending_rule_template),
+                "settings": {"shouldRun": True, "shouldApplyRuleOnUpdate": False},
+            },
+        },
+        "type": "timeSeriesView-v1",
+    }
+
+    # ----------------------------------------------------------------------
     # The approval half of the loop
     # ----------------------------------------------------------------------
     #
@@ -521,6 +791,7 @@ def build_entities() -> list[dict]:
     return [
         container,
         source, source_event, rule,
+        pending_source, pending_event, pending_rule,
         approvals_source, approvals_event, notebook_action, approval_rule,
     ]
 
@@ -550,8 +821,11 @@ def call(method: str, url: str, body: dict | None = None) -> tuple[int, dict, di
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             raw = response.read().decode("utf-8")
+            # A 202 can carry a literal "null" body, which json.loads turns
+            # into None rather than a dict, so every caller that reads an id
+            # off it would raise AttributeError instead of polling.
             payload = json.loads(raw) if raw.strip() else {}
-            return response.status, payload, dict(response.headers)
+            return response.status, (payload or {}), dict(response.headers)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise SystemExit(f"HTTP {exc.code} {method} {url}\n{raw[:1500]}") from None
@@ -623,8 +897,10 @@ def main() -> int:
             {
                 "displayName": ACTIVATOR_NAME,
                 "description": (
-                    "Watches data agent evaluation runs and alerts a human when a "
-                    "run raises a high severity regression. Never changes the model."
+                    "Watches data agent evaluation runs. Alerts a human when a run "
+                    "raises a high severity regression, and again when approved "
+                    "remediations are left waiting. Never changes the model without "
+                    "an approval row written by a person."
                 ),
                 "definition": definition,
             },

@@ -628,6 +628,51 @@ class FixProposal:
 TARGET_SEMANTIC_MODEL = "semantic_model"  # Prep data for AI, changes the DAX
 TARGET_DATA_AGENT = "data_agent"  # response shape only
 
+# Instructions that belong on the agent, kept apart from the model library so
+# that nothing can accidentally send one to the wrong place.
+#
+# Everything here changes how an answer is *presented*. Nothing here can
+# change a number, and that is the test for whether a line belongs in this
+# dictionary rather than the one above. If a proposed agent instruction would
+# only work by altering which rows were selected, it is in the wrong place and
+# will do nothing at all once applied.
+AGENT_INSTRUCTION_LIBRARY = {
+    "label_every_group": (
+        "When you answer a question that groups or breaks down a figure, name "
+        "every group alongside its value. A list of numbers without the "
+        "categories they belong to is not an answer to a 'by' question."
+    ),
+    "state_the_period": (
+        "Whenever an answer covers a specific time period, say which period it "
+        "covers before giving the number. If the question named no period, say "
+        "that the answer covers all available data."
+    ),
+    "show_the_measure": (
+        "Name the measure you used when you give a figure, for example "
+        "\"Total Net Sales\". If two measures could plausibly answer the "
+        "question, say which one you chose and why."
+    ),
+}
+
+
+def agent_target_is_safe(detail: str) -> bool:
+    """Whether an agent instruction could possibly fix this evidence.
+
+    The rule that keeps the agent path honest. An agent instruction is applied
+    after the query has run, so it can change how an answer reads and nothing
+    else. If any expected *value* was missing, the query was wrong, and no
+    amount of instruction about presentation will produce a number that was
+    never computed.
+
+    Getting this wrong is not a harmless mistake. It produces a fix that is
+    approved, applied, verified as persisted, and changes nothing, which is
+    the most expensive kind of wrong because it looks like progress.
+    """
+    lowered = (detail or "").lower()
+    if "values missing" in lowered:
+        return False
+    return "values right" in lowered
+
 # The literal sentences a human is asked to approve, per defect class. Kept
 # here rather than generated, so the text is reviewable in a pull request
 # rather than assembled at midnight by a scheduled job.
@@ -755,6 +800,22 @@ def route_defect(result: QuestionResult, expected: Expected) -> FixProposal:
             automatable=False,
         )
 
+    # Every expected value was there and the labels were not. The query was
+    # right and the answer was badly written, which is the one defect class an
+    # agent instruction can actually fix: it shapes the reply after the query
+    # has run.
+    if PARTLY_CORRECT in grades and agent_target_is_safe(detail):
+        return FixProposal(
+            qid, classification, 1,
+            "data agent instructions, answer shape",
+            "Computed the right numbers and did not say what they were for. "
+            "The query was correct, so this is presentation, and presentation "
+            "is the only thing an agent instruction can change.",
+            automatable=True,
+            proposed_instruction=AGENT_INSTRUCTION_LIBRARY["label_every_group"],
+            instruction_target=TARGET_DATA_AGENT,
+        )
+
     if PARTLY_CORRECT in grades:
         return FixProposal(
             qid, classification, 1,
@@ -800,6 +861,29 @@ def propose_fixes(
             continue
 
         proposal = route_defect(result, expected)
+
+        # A routing bug that sends a wrong-value defect to the agent would
+        # produce a fix that is approved, applied, recorded as persisted, and
+        # changes nothing, because agent instructions never reach the query.
+        # Catch it here rather than discovering it three runs later when the
+        # score has not moved.
+        if proposal.instruction_target == TARGET_DATA_AGENT:
+            detail = " ".join(a.detail for a in result.attempts)
+            if not agent_target_is_safe(detail):
+                proposal = FixProposal(
+                    question_id=proposal.question_id,
+                    classification=proposal.classification,
+                    tier=2,
+                    fix_target="mis-routed to the agent, needs a person",
+                    rationale=(
+                        "This defect was routed to the data agent, but its "
+                        "evidence shows a missing or wrong value. An agent "
+                        "instruction is applied after the query has run and "
+                        "cannot produce a number that was never computed. "
+                        f"Evidence: {detail}"
+                    ),
+                    automatable=False,
+                )
 
         if proposal.proposed_instruction in applied_instructions:
             proposal = FixProposal(

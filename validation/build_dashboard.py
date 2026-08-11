@@ -345,8 +345,11 @@ def call(method: str, url: str, body: dict | None = None):
     try:
         with urllib.request.urlopen(request, timeout=180) as response:
             raw = response.read().decode("utf-8")
+            # A 202 can carry a literal "null" body, which json.loads turns
+            # into None rather than a dict, so every caller that reads an id
+            # off it would raise AttributeError instead of polling.
             payload = json.loads(raw) if raw.strip() else {}
-            return response.status, payload, dict(response.headers)
+            return response.status, (payload or {}), dict(response.headers)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise SystemExit(f"HTTP {exc.code} {method} {url}\n{raw[:1500]}") from None

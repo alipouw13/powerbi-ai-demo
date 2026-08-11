@@ -745,7 +745,8 @@ class TestDefectRouting(unittest.TestCase):
         self.assertEqual(eh.propose_fixes(results, self.expectations), [])
 
     def test_every_tier_one_proposal_is_additive_metadata(self) -> None:
-        allowed = ("AI instructions", "AI data schema", "descriptions")
+        allowed = ("AI instructions", "AI data schema", "descriptions",
+                   "data agent instructions")
         results = [
             _result("Q02", [eh.REFUSED] * 3),
             _result("F01", [eh.WRONG] * 3, kind=eh.PROBE),
@@ -757,6 +758,63 @@ class TestDefectRouting(unittest.TestCase):
                     any(a in proposal.fix_target for a in allowed),
                     f"tier 1 target not additive: {proposal.fix_target}",
                 )
+
+    def test_an_agent_proposal_only_ever_follows_agent_safe_evidence(self) -> None:
+        """The invariant the whitelist above was really protecting.
+
+        An agent instruction is applied after the query has run. Proposing one
+        for a defect whose evidence is a missing value produces a fix that is
+        approved, applied, recorded as persisted, and changes nothing.
+        """
+        results = [
+            _result("Q08", [eh.PARTLY_CORRECT] * 3, detail="values right, labels missing: East"),
+            _result("Q09", [eh.PARTLY_CORRECT] * 3, detail="labels right, values missing: 1,234.00"),
+            _result("Q02", [eh.WRONG] * 3, detail="values missing: 99.00"),
+            _result("Q10", [eh.REFUSED] * 3),
+        ]
+        for proposal in eh.propose_fixes(results, self.expectations):
+            if proposal.instruction_target == eh.TARGET_DATA_AGENT:
+                evidence = " ".join(
+                    a.detail
+                    for r in results if r.question_id == proposal.question_id
+                    for a in r.attempts
+                )
+                self.assertTrue(
+                    eh.agent_target_is_safe(evidence),
+                    f"{proposal.question_id} was routed to the agent on "
+                    f"evidence an agent instruction cannot fix: {evidence}",
+                )
+
+    def test_a_values_missing_defect_never_reaches_the_agent(self) -> None:
+        results = [_result("Q08", [eh.PARTLY_CORRECT] * 3,
+                           detail="labels right, values missing: 1,234.00")]
+        proposal = eh.propose_fixes(results, self.expectations)[0]
+        self.assertNotEqual(proposal.instruction_target, eh.TARGET_DATA_AGENT)
+
+    def test_a_presentation_defect_is_offered_as_an_agent_fix(self) -> None:
+        results = [_result("Q08", [eh.PARTLY_CORRECT] * 3,
+                           detail="values right, labels missing: East")]
+        proposal = eh.propose_fixes(results, self.expectations)[0]
+        self.assertEqual(proposal.instruction_target, eh.TARGET_DATA_AGENT)
+        self.assertTrue(proposal.auto_appliable)
+        self.assertIn(proposal.proposed_instruction,
+                      eh.AGENT_INSTRUCTION_LIBRARY.values())
+
+    def test_the_two_instruction_libraries_do_not_overlap(self) -> None:
+        # A sentence in both would be applied to whichever target the router
+        # happened to pick, which is how a model fix ends up in the agent box
+        # doing nothing.
+        self.assertEqual(
+            set(eh.INSTRUCTION_LIBRARY.values())
+            & set(eh.AGENT_INSTRUCTION_LIBRARY.values()),
+            set(),
+        )
+
+    def test_agent_target_is_safe_rejects_missing_values(self) -> None:
+        self.assertFalse(eh.agent_target_is_safe("labels right, values missing: 1.00"))
+        self.assertFalse(eh.agent_target_is_safe("values missing: 1.00"))
+        self.assertFalse(eh.agent_target_is_safe(""))
+        self.assertTrue(eh.agent_target_is_safe("values right, labels missing: East"))
 
 
 class TestGroundTruthContract(unittest.TestCase):

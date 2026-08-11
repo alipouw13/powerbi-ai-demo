@@ -22,6 +22,7 @@ Required, per script, with the names the deployment scripts expect:
 | `FABRIC_LAKEHOUSE_ID` | notebook lakehouse binding |
 | `AGENT_ACCURACY_RECIPIENTS` | activator, comma separated |
 | `GITHUB_REPOSITORY` | file_issues, as owner/repo |
+| `FABRIC_SQL_CONNECTION_STRING` | apply_schema, from the item's connectionString |
 
 Optional, with defaults, because these are demo object names rather than
 tenant identifiers:
@@ -29,6 +30,7 @@ tenant identifiers:
 | Variable | Default |
 | --- | --- |
 | `FABRIC_KUSTO_DATABASE_NAME` | `EH_AgentEval` |
+| `FABRIC_SQL_DATABASE_NAME` | `SQLDB_AgentEval` |
 | `FABRIC_LAKEHOUSE_NAME` | `LH_ContosoCoffee` |
 | `FABRIC_SEMANTIC_MODEL_NAME` | `ContosoCoffee` |
 
@@ -58,6 +60,9 @@ KUSTO_DATABASE_NAME = os.environ.get(
     "FABRIC_KUSTO_DATABASE_NAME", "EH_AgentEval"
 ).strip()
 LAKEHOUSE_NAME = os.environ.get("FABRIC_LAKEHOUSE_NAME", "LH_ContosoCoffee").strip()
+SQL_DATABASE_NAME = os.environ.get(
+    "FABRIC_SQL_DATABASE_NAME", "SQLDB_AgentEval"
+).strip()
 SEMANTIC_MODEL_NAME = os.environ.get(
     "FABRIC_SEMANTIC_MODEL_NAME", "ContosoCoffee"
 ).strip()
@@ -70,6 +75,12 @@ RECIPIENTS = [
 
 GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "").strip()
 
+# The SQL database's TDS endpoint. A Fabric SQL database takes DDL over TDS
+# rather than over the item API, so applying the schema needs this even though
+# creating the database does not. Read it from the item's connectionString
+# property, or from Settings > Connection strings in the portal.
+SQL_CONNECTION_STRING = os.environ.get("FABRIC_SQL_CONNECTION_STRING", "").strip()
+
 _VALUES = {
     "FABRIC_WORKSPACE_ID": WORKSPACE_ID,
     "FABRIC_KUSTO_URI": KUSTO_URI,
@@ -80,6 +91,7 @@ _VALUES = {
     "FABRIC_LAKEHOUSE_ID": LAKEHOUSE_ID,
     "AGENT_ACCURACY_RECIPIENTS": ",".join(RECIPIENTS),
     "GITHUB_REPOSITORY": GITHUB_REPOSITORY,
+    "FABRIC_SQL_CONNECTION_STRING": SQL_CONNECTION_STRING,
 }
 
 
