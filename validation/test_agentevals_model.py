@@ -27,6 +27,10 @@ import build_agentevals_model as model  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# Measures that exist so a report control can bind to them, rather than to
+# answer a question. They are held to different rules below.
+BINDING_MEASURES = {"Selected Question ID"}
+
 
 def visible_columns():
     for table in model.TABLES:
@@ -163,10 +167,24 @@ class TestMeasures(unittest.TestCase):
             with self.subTest(measure=measure.name):
                 self.assertIn(measure.table, tables)
 
-    def test_every_measure_is_in_a_display_folder(self) -> None:
+    def test_every_analysis_measure_is_in_a_display_folder(self) -> None:
+        """Folders keep the field list readable.
+
+        Report bindings are exempt and are checked separately: a field whose
+        only job is to be found in a portal dialog should not be one expand
+        deeper than the columns beside it.
+        """
         for measure in model.MEASURES:
+            if measure.name in BINDING_MEASURES:
+                continue
             with self.subTest(measure=measure.name):
                 self.assertTrue(measure.folder)
+
+    def test_binding_measures_sit_at_the_root_of_their_table(self) -> None:
+        for name in BINDING_MEASURES:
+            measure = next(m for m in model.MEASURES if m.name == name)
+            with self.subTest(measure=name):
+                self.assertEqual(measure.folder, "")
 
     def test_measures_do_not_use_reserved_words_as_variables(self) -> None:
         """A VAR called Current compiles nowhere and deploys fine.
@@ -257,10 +275,21 @@ class TestGeneratedTmdl(unittest.TestCase):
         run_id = text.split("column 'Run ID'")[1].split("column")[0]
         self.assertIn("isHidden", run_id)
 
-    def test_implicit_measures_are_discouraged(self) -> None:
-        """Otherwise a user can drag a hidden column onto a visual and sum it."""
-        self.assertIn("discourageImplicitMeasures",
-                      self.parts["definition/model.tmdl"])
+    def test_implicit_measures_are_not_discouraged(self) -> None:
+        """This flag is off on purpose, and the reason is worth keeping.
+
+        It breaks translytical binding: a data function parameter is bound
+        through conditional formatting, which needs an aggregation, and the
+        flag switches implicit aggregations off model-wide. Every column greys
+        out and Power BI says "a measure is required here".
+
+        What it was protecting against is handled better by hiding columns.
+        Every per-run score column is hidden, so nobody can drag one onto a
+        visual and sum it across runs. The rule below is what actually holds
+        that line, and it is asserted by TestNothingCanBeSummedByAccident.
+        """
+        self.assertNotIn("discourageImplicitMeasures",
+                         self.parts["definition/model.tmdl"])
 
     def test_the_inactive_relationship_is_written_as_inactive(self) -> None:
         text = self.parts["definition/relationships.tmdl"]

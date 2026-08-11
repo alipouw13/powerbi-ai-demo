@@ -155,10 +155,10 @@ over this model, or the two surfaces will disagree.
   try to summarise into an answer rather than count.
 - `Approvals` / `Feedback`: `Approver Object ID`, `Submitter Object ID`.
 - `Questions`: `Bank Version`, `Published`. Version metadata, not analysis.
-- `Selected Question ID`, the one measure in the **Report bindings** folder.
-  It exists so the approval button can pass the selected question to the user
-  data function, and it answers no business question: offered to Copilot it
-  would be quoted as though it meant something.
+- `Selected Question ID`. It sits at the root of `Questions` so it is easy to
+  find in the approval button's binding dialog, and it exists only to pass the
+  selected question to the user data function. It answers no business
+  question, and offered to Copilot it would be quoted as though it did.
 
 ---
 

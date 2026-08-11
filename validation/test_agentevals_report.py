@@ -310,15 +310,17 @@ class TestTheWritebackPage(unittest.TestCase):
 class TestTheApprovalButtonHasSomethingToBindTo(unittest.TestCase):
     """The writeback breaks without this, and it breaks in the portal.
 
-    A data function parameter is bound through conditional formatting, which
-    needs an aggregation. This model sets discourageImplicitMeasures, so a
-    column offers none and Power BI refuses it outright:
+    A data function parameter is bound through conditional formatting. Binding
+    to the Question ID column needs an aggregation like First or Max, which
+    silently picks one row out of however many are selected and records a
+    decision against a question the approver did not mean.
 
-        This field can't be used here because the data model has discourage
-        implicit measures property enabled, and a measure is required here.
+    This model also used to set discourageImplicitMeasures, which made the
+    column fail outright with "a measure is required here". That flag is off
+    now, so both work and this is the safer of the two.
 
-    Nothing in the report definition can catch that, because the binding is
-    not in the report definition. This is the guard instead.
+    Nothing in the report definition can catch a broken binding, because the
+    binding is not in the report definition. This is the guard instead.
     """
 
     NAME = "Selected Question ID"
@@ -343,19 +345,25 @@ class TestTheApprovalButtonHasSomethingToBindTo(unittest.TestCase):
     def test_it_reads_the_question_the_queue_selects(self) -> None:
         self.assertIn("'Questions'[Question ID]", self.measure().expression)
 
-    def test_it_is_kept_out_of_the_analysis_folders(self) -> None:
-        """It answers no business question, so it should not look like one."""
-        self.assertEqual(self.measure().folder, model.BINDINGS)
+    def test_it_is_easy_to_find_in_a_portal_dialog(self) -> None:
+        """No display folder, because it has exactly one job.
 
-    def test_the_model_still_discourages_implicit_measures(self) -> None:
-        """If this is ever turned off, the measure stops being necessary.
+        It was in one called "Report bindings", which is tidier and put the
+        one field somebody needs one expand deeper than the columns they were
+        already looking at, in a dialog where the obvious choice fails.
+        """
+        self.assertEqual(self.measure().folder, "")
 
-        It would still be the safer binding, so this is a prompt to re-read
-        the reasoning rather than a rule.
+    def test_the_model_does_not_discourage_implicit_measures(self) -> None:
+        """Because that is what made this binding impossible in the first place.
+
+        With the flag on, the Question ID column greys out and Power BI says
+        a measure is required. With it off, both the column and this measure
+        work, and this measure is still the safer of the two.
         """
         import build_agentevals_model as m
 
-        self.assertIn("discourageImplicitMeasures", m.model_tmdl())
+        self.assertNotIn("discourageImplicitMeasures", m.model_tmdl())
 
 
 class TestGeneratedPartsAreComplete(unittest.TestCase):

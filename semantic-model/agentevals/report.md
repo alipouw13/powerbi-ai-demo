@@ -96,30 +96,36 @@ select the button under *Then submit your decision:*, and in **Format button**
 
 Turn **Auto clear** on, so the note does not carry over to the next decision.
 
-### Why `questionId` binds to a measure, not to the Question ID column
+> **If the report editor was already open**, reload the page first. It caches
+> the model's field list, so a measure added since you opened it will not be
+> in the picker.
 
-Picking the column gives you:
+### Why `questionId` binds to a measure
 
-> This field can't be used here because the data model has discourage implicit
-> measures property enabled, and a measure is required here.
-
-That is this model's `discourageImplicitMeasures` setting, and it is doing its
-job. A field-value binding needs an aggregation, and the model switches
-implicit aggregations off so that nobody can quietly sum a per-run score.
-
-`Selected Question ID` is the measure to bind instead, and it is a better
-binding rather than a workaround:
+`Selected Question ID` sits at the top of the `Questions` table, above the
+columns, with no display folder to expand:
 
 ```dax
 Selected Question ID = SELECTEDVALUE ( 'Questions'[Question ID] )
 ```
 
-Binding to the column would have needed `First` or `Max`, which silently picks
-one row out of however many are selected and records a decision against a
-question the approver did not mean. `SELECTEDVALUE` returns blank unless
-exactly one question is in context, so an ambiguous selection cannot be
-approved at all. Selecting a row in **Proposed fixes awaiting a decision** is
-what puts one question in context.
+The `Question ID` column works too, but it needs an aggregation such as `First`
+or `Max`, and that silently picks one row out of however many are selected and
+records a decision against a question the approver did not mean.
+`SELECTEDVALUE` returns blank unless exactly one question is in context, so an
+ambiguous selection cannot be approved at all. Selecting a row in **Proposed
+fixes awaiting a decision** is what puts one question in context.
+
+This model used to set `discourageImplicitMeasures`, and that made the column
+fail outright with:
+
+> This field can't be used here because the data model has discourage implicit
+> measures property enabled, and a measure is required here.
+
+The flag is now off. It was protecting against summing a per-run score across
+runs, and every one of those columns is already hidden, so nobody can drag one
+onto a visual in the first place. It was buying almost nothing and breaking the
+report's main interaction.
 
 While you are in that pane, set the button's **Text** to `Submit decision` and
 its **Fill** to `#4C7DF0`. The generated definition already carries both, and

@@ -475,7 +475,6 @@ DEFECTS = "Defects"
 APPROVALS = "Approvals"
 REMEDIATION = "Remediation"
 FEEDBACK = "Feedback"
-BINDINGS = "Report bindings"
 
 
 def latest_of(column: str) -> str:
@@ -781,16 +780,17 @@ MEASURES: list[Measure] = [
     # ---- Report bindings -------------------------------------------------
     #
     # The approval button passes the selected question to the user data
-    # function. A data function parameter is bound through conditional
-    # formatting, which needs a measure rather than a column: this model sets
-    # discourageImplicitMeasures, so a column offers no aggregation to bind to
-    # and Power BI refuses it with "a measure is required here".
+    # function. Binding to the Question ID column would need an aggregation
+    # like First or Max, which silently picks one row out of however many are
+    # selected and records a decision against a question the approver did not
+    # mean. SELECTEDVALUE returns blank unless exactly one question is in
+    # context, so an ambiguous selection cannot be approved at all.
     #
-    # SELECTEDVALUE is the right answer rather than a workaround. Binding to a
-    # column would need an aggregation like First or Max, which silently picks
-    # one row out of many and records a decision against a question the
-    # approver did not mean. This returns blank unless exactly one question is
-    # in context, so an ambiguous selection cannot be approved at all.
+    # It sits at the root of the Questions table rather than in a display
+    # folder, on purpose. It was in one called "Report bindings", which is
+    # tidier and put the one field somebody needs in the middle of a portal
+    # dialog one expand deeper than the columns they were already looking at.
+    # Findability wins over tidiness for a field that has exactly one job.
     Measure(
         "Questions", "Selected Question ID",
         "SELECTEDVALUE ( 'Questions'[Question ID] )",
@@ -799,7 +799,7 @@ MEASURES: list[Measure] = [
         "exactly one question is selected, which stops a decision being "
         "recorded against an ambiguous selection. This is report plumbing "
         "rather than an analysis measure.",
-        "", BINDINGS,
+        "", "",
     ),
 ]
 
@@ -905,7 +905,24 @@ def model_tmdl() -> str:
         "\tculture: en-US",
         "\tdefaultPowerBIDataSourceVersion: powerBI_V3",
         "\tsourceQueryCulture: en-US",
-        "\tdiscourageImplicitMeasures",
+        # discourageImplicitMeasures is deliberately NOT set here.
+        #
+        # It was, and it broke the thing this model exists to enable. A
+        # translytical task flow binds a data function parameter through
+        # conditional formatting, which needs an aggregation, and the flag
+        # switches implicit aggregations off model-wide. Every column greys
+        # out in the picker and Power BI says "a measure is required here",
+        # which is true and unhelpful.
+        #
+        # What it was protecting against is already handled better. The danger
+        # is summing a per-run score across runs, and every one of those
+        # columns is hidden, so nobody can drag it onto anything. The visible
+        # numeric columns are Question Number, Attempt Number and Fix Tier;
+        # summing those is meaningless rather than misleading.
+        #
+        # So the flag was buying almost nothing and costing the report's main
+        # interaction. Selected Question ID remains the better binding and is
+        # right there at the top of the Questions table.
         "\tdataAccessOptions",
         "\t\tlegacyRedirects",
         "\t\treturnErrorValuesAsNull",
@@ -1008,13 +1025,30 @@ def build_measures_doc() -> str:
         f"// characters, so the business meaning comes first. {len(MEASURES)} measures.",
         "",
     ]
-    for folder in (SCORE, QUALITY, DEFECTS, APPROVALS, REMEDIATION, FEEDBACK,
-                   BINDINGS):
+    for folder in (SCORE, QUALITY, DEFECTS, APPROVALS, REMEDIATION, FEEDBACK):
+        members = [m for m in MEASURES if m.folder == folder]
+        if not members:
+            continue
         lines.append("// " + "-" * 73)
         lines.append(f"// {folder}")
         lines.append("// " + "-" * 73)
         lines.append("")
-        for measure in [m for m in MEASURES if m.folder == folder]:
+        for measure in members:
+            for chunk in wrap(f"Description: {measure.description}"):
+                lines.append(f"// {chunk}")
+            lines.append(f"{measure.name} =")
+            lines += measure.expression.strip().splitlines()
+            lines.append("")
+
+    # Measures deliberately left at the root of their table, so that a person
+    # hunting for one in a portal dialog does not have to expand a folder.
+    rootless = [m for m in MEASURES if not m.folder]
+    if rootless:
+        lines.append("// " + "-" * 73)
+        lines.append("// Report bindings, at the root of their table on purpose")
+        lines.append("// " + "-" * 73)
+        lines.append("")
+        for measure in rootless:
             for chunk in wrap(f"Description: {measure.description}"):
                 lines.append(f"// {chunk}")
             lines.append(f"{measure.name} =")

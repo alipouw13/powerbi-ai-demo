@@ -315,7 +315,7 @@ Untriaged Feedback =
 CALCULATE ( [Feedback Items], 'Feedback'[Triage Status] = "new" )
 
 // -------------------------------------------------------------------------
-// Report bindings
+// Report bindings, at the root of their table on purpose
 // -------------------------------------------------------------------------
 
 // Description: The question currently selected in the approval queue, so the
