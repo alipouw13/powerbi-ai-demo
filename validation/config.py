@@ -33,6 +33,7 @@ tenant identifiers:
 | `FABRIC_SQL_DATABASE_NAME` | `SQLDB_AgentEval` |
 | `FABRIC_LAKEHOUSE_NAME` | `LH_ContosoCoffee` |
 | `FABRIC_SEMANTIC_MODEL_NAME` | `ContosoCoffee` |
+| `FABRIC_AGENTEVALS_MODEL_NAME` | `AgentEvals` |
 
 Set them once per shell:
 
@@ -65,6 +66,11 @@ SQL_DATABASE_NAME = os.environ.get(
 ).strip()
 SEMANTIC_MODEL_NAME = os.environ.get(
     "FABRIC_SEMANTIC_MODEL_NAME", "ContosoCoffee"
+).strip()
+# The Direct Lake model over the SQL database. Separate from the demo model
+# above: that one is the thing being measured, this one measures it.
+AGENTEVALS_MODEL_NAME = os.environ.get(
+    "FABRIC_AGENTEVALS_MODEL_NAME", "AgentEvals"
 ).strip()
 
 RECIPIENTS = [

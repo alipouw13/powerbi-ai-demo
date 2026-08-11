@@ -48,6 +48,11 @@ ALLOWED_GUIDS = {
     # The uuid5 namespace the dashboard uses to generate stable tile ids. It
     # is an arbitrary constant, not a workspace identifier.
     "6f1d3f5a-0c7f-4f2e-9c8a-5b1e7d2a4c30",
+    # The RFC 4122 nil UUID. It is the .platform logicalId Fabric expects when
+    # an item is not from git, and the placeholder the model builder's tests
+    # pass where a real database id would go. It identifies nothing, which is
+    # the whole point of it.
+    "00000000-0000-0000-0000-000000000000",
 }
 
 SCANNED_SUFFIXES = {".py", ".ipynb", ".md"}
@@ -213,6 +218,7 @@ class TestDeploymentScriptsRequireConfiguration(unittest.TestCase):
         # store with a managed connection, so a workspace is all it needs.
         "build_approval_function.py": ["FABRIC_WORKSPACE_ID"],
         "build_sql_schema.py": ["FABRIC_WORKSPACE_ID"],
+        "build_agentevals_model.py": ["FABRIC_WORKSPACE_ID"],
         "apply_schema.py": ["FABRIC_SQL_CONNECTION_STRING"],
         "approve.py": ["FABRIC_KUSTO_URI"],
         "file_issues.py": ["FABRIC_KUSTO_URI"],
