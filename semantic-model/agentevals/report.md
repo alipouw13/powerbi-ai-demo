@@ -141,6 +141,32 @@ same set, for a second button if you want readers to flag an answer without
 approving anything. Feedback is evidence that a defect may exist. It is not an
 approval and cannot become one.
 
+### Rebuilding does not undo it
+
+`build_agentevals_report.py --apply` replaces every part of the report, so on
+the face of it a rebuild would delete the binding you just configured. It does
+not: the builder reads the deployed report first and carries the binding
+across, printing
+
+```
+kept the existing data function binding (approve_remediation)
+```
+
+when it finds one. That works because the visual ids are deterministic, so the
+slicers the binding names are still there under the same ids after a rebuild.
+The builder checks that rather than assuming it, and says so if a referenced
+slicer has gone.
+
+This was found the hard way. The first version of the carry-over looked for
+the binding under `objects`; it lives under `visualContainerObjects`, so it
+found nothing, said nothing, and the rebuild silently dropped a working
+binding. Both containers are searched now, and the test uses the real one, so
+a test that passes cannot mean a carry-over that does not.
+
+If you change the binding in the portal, the change is picked up by the next
+rebuild automatically. It only lives in the deployed report, so it is worth
+knowing that a deleted workspace takes it with it.
+
 ---
 
 ## Testing checklist

@@ -766,13 +766,8 @@ def wait(headers: dict) -> None:
     raise SystemExit("timed out waiting for the update to finish")
 
 
-def existing_base_theme(report_id: str) -> str:
-    """Reuse whatever base theme the report already carries.
-
-    The base theme name is a platform version, CY26SU08 today, and a report
-    that names one the tenant does not have fails to open. Reading it is a
-    request; guessing it is a support ticket.
-    """
+def deployed_definition(report_id: str) -> dict[str, str]:
+    """The report as it exists in Fabric right now, as path -> text."""
     _, _, headers = call(
         "POST", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/reports/"
                 f"{report_id}/getDefinition")
@@ -786,11 +781,112 @@ def existing_base_theme(report_id: str) -> str:
         time.sleep(5)
     _, result, _ = call(
         "GET", f"{FABRIC_API}/v1/operations/{operation_id}/result")
-    for part in result.get("definition", {}).get("parts", []):
-        if part["path"] == "definition/report.json":
-            report = json.loads(base64.b64decode(part["payload"]))
-            return report["themeCollection"]["baseTheme"]["name"]
-    raise SystemExit("the report has no base theme to reuse")
+    return {
+        part["path"]: base64.b64decode(part["payload"]).decode("utf-8")
+        for part in result.get("definition", {}).get("parts", [])
+    }
+
+
+def base_theme_of(deployed: dict[str, str]) -> str:
+    """Reuse whatever base theme the report already carries.
+
+    The base theme name is a platform version, CY26SU08 today, and a report
+    that names one the tenant does not have fails to open. Reading it is a
+    request; guessing it is a support ticket.
+    """
+    report = json.loads(deployed["definition/report.json"])
+    return report["themeCollection"]["baseTheme"]["name"]
+
+
+def carry_over_button_action(parts: dict[str, str],
+                             deployed: dict[str, str]) -> None:
+    """Keep the data function binding that somebody configured in the portal.
+
+    The binding cannot be generated: it names a workspace and a function by
+    id, which are tenant facts this repo keeps out of source control. So it is
+    authored once in the format pane, and it lives only in the deployed
+    report.
+
+    This script replaces every part, so without this it would silently delete
+    that work on the next run and the button would go quiet. Nobody would
+    notice until an approval did not arrive.
+
+    Carrying it over is safe because the visual ids are deterministic: the
+    slicers the binding points at are generated with the same ids every time.
+    That is checked below rather than assumed.
+
+    The binding lives under `visualContainerObjects`, not `objects`, which is
+    where the first version of this function looked. It found nothing, said
+    nothing, and the rebuild deleted a working binding.
+    """
+    # Both containers are searched because being wrong about which one costs
+    # somebody their configuration, and looking in two places costs nothing.
+    containers = ("visualContainerObjects", "objects")
+
+    bound = None
+    source = ""
+    for path, text in deployed.items():
+        if not path.endswith("visual.json"):
+            continue
+        payload = json.loads(text)
+        visual_body = payload.get("visual", {})
+        if visual_body.get("visualType") != "actionButton":
+            continue
+        for container in containers:
+            if "visualLink" in visual_body.get(container, {}):
+                bound, source = payload, container
+                break
+        if bound:
+            break
+    if bound is None:
+        return
+
+    target = next(
+        (path for path, text in parts.items()
+         if path.endswith("visual.json")
+         and json.loads(text)["name"] == bound["name"]),
+        None,
+    )
+    if target is None:
+        print(f"WARNING: the deployed button {bound['name']} has an action "
+              "binding and this build has no button with that id. The binding "
+              "will be lost. Re-bind it in the format pane.")
+        return
+
+    link = bound["visual"][source]["visualLink"]
+
+    # The binding names the slicers it reads by visual id. If a rebuild
+    # renamed or removed one, carrying the binding over would leave a button
+    # wired to a visual that is not there.
+    generated = {json.loads(text)["name"] for path, text in parts.items()
+                 if path.endswith("visual.json")}
+    referenced = {
+        parameter.get("slicer")
+        for block in link
+        for parameter in (block.get("properties", {})
+                          .get("dataFunction", {})
+                          .get("metadata", {})
+                          .get("dataFunction", {})
+                          .get("parameters", []))
+        if parameter.get("slicer")
+    }
+    missing = referenced - generated
+    if missing:
+        print(f"WARNING: the action binding reads slicers {sorted(missing)}, "
+              "which this build does not produce. Carrying it over anyway; "
+              "check the button in the format pane.")
+
+    payload = json.loads(parts[target])
+    payload["visual"].setdefault(source, {})["visualLink"] = link
+    parts[target] = json.dumps(payload, indent=2)
+
+    functions = [
+        block.get("properties", {}).get("dataFunction", {})
+             .get("metadata", {}).get("dataFunction", {}).get("name")
+        for block in link
+    ]
+    print("kept the existing data function binding "
+          f"({', '.join(f for f in functions if f)})")
 
 
 def apply(report_id: str, parts: dict[str, str]) -> int:
@@ -846,11 +942,11 @@ def main() -> int:
             "Create an empty one over the AgentEvals model first, or set "
             "FABRIC_AGENTEVALS_REPORT_NAME.")
 
-    base_theme = existing_base_theme(report_id)
-    parts = build(model_id, base_theme)
+    deployed = deployed_definition(report_id)
+    parts = build(model_id, base_theme_of(deployed))
+    carry_over_button_action(parts, deployed)
     write_local(parts)
     return apply(report_id, parts) if args.apply else 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

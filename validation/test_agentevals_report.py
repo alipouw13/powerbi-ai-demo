@@ -366,6 +366,97 @@ class TestTheApprovalButtonHasSomethingToBindTo(unittest.TestCase):
         self.assertNotIn("discourageImplicitMeasures", m.model_tmdl())
 
 
+class TestTheButtonBindingSurvivesARebuild(unittest.TestCase):
+    """The one part of this report that cannot be regenerated.
+
+    The data function binding names a workspace and a function by id, so it is
+    authored once in the format pane and lives only in the deployed report.
+    This script replaces every part, so without carrying it over a rebuild
+    deletes it and the button goes quiet. Nobody notices until an approval
+    does not arrive.
+    """
+
+    def deployed_with_binding(self) -> dict[str, str]:
+        """A stand-in for the real report, with a button somebody has bound."""
+        built = parts()
+        button_path = next(
+            path for path, text in built.items()
+            if path.endswith("visual.json")
+            and json.loads(text)["visual"]["visualType"] == "actionButton"
+        )
+        payload = json.loads(built[button_path])
+        # visualContainerObjects, not objects. The first version of the
+        # carry-over looked under objects, found nothing, said nothing, and
+        # the rebuild deleted a working binding. A test that used the wrong
+        # container would have passed while the code was broken.
+        payload["visual"].setdefault("visualContainerObjects", {})["visualLink"] = [{
+            "properties": {
+                "show": {"expr": {"Literal": {"Value": "true"}}},
+                "type": {"expr": {"Literal": {"Value": "'DataFunction'"}}},
+                "dataFunction": {"metadata": {"dataFunction": {
+                    "name": "approve_remediation",
+                    "parameters": [
+                        {"name": "questionId", "type": "ValueParameter"},
+                        {"name": "decision", "type": "SlicerParameter",
+                         "slicer": report.vid(f"{report.P2}/input/decision")},
+                        {"name": "note", "type": "SlicerParameter",
+                         "slicer": report.vid(f"{report.P2}/input/note")},
+                    ],
+                }}},
+            }
+        }]
+        built[button_path] = json.dumps(payload, indent=2)
+        return built
+
+    def rebuilt_button(self, deployed: dict[str, str]) -> dict:
+        fresh = parts()
+        report.carry_over_button_action(fresh, deployed)
+        return json.loads(next(
+            text for path, text in fresh.items()
+            if path.endswith("visual.json")
+            and json.loads(text)["visual"]["visualType"] == "actionButton"
+        ))
+
+    def test_a_fresh_build_has_no_binding_of_its_own(self) -> None:
+        """Otherwise this test would pass without carrying anything over."""
+        button = json.loads(next(
+            text for path, text in parts().items()
+            if path.endswith("visual.json")
+            and json.loads(text)["visual"]["visualType"] == "actionButton"
+        ))
+        for container in ("objects", "visualContainerObjects"):
+            with self.subTest(container=container):
+                self.assertNotIn("visualLink",
+                                 button["visual"].get(container, {}))
+
+    def test_the_binding_is_carried_over(self) -> None:
+        button = self.rebuilt_button(self.deployed_with_binding())
+        self.assertIn("visualLink", button["visual"]["visualContainerObjects"])
+        self.assertIn("approve_remediation", json.dumps(button))
+
+    def test_the_carried_binding_keeps_its_parameter_wiring(self) -> None:
+        """A binding that survives but loses its parameters is still broken."""
+        button = self.rebuilt_button(self.deployed_with_binding())
+        text = json.dumps(button)
+        for name in ("questionId", "decision", "note"):
+            with self.subTest(parameter=name):
+                self.assertIn(name, text)
+
+    def test_carrying_over_is_safe_when_nothing_is_bound(self) -> None:
+        """First run: the deployed report has a button and no binding."""
+        fresh = parts()
+        report.carry_over_button_action(fresh, parts())
+        self.assertEqual(fresh, parts())
+
+    def test_the_slicer_ids_the_binding_points_at_are_stable(self) -> None:
+        """The binding names slicers by visual id, so the ids cannot drift."""
+        names = {json.loads(text)["name"] for path, text in parts().items()
+                 if path.endswith("visual.json")}
+        for key in ("decision", "note"):
+            with self.subTest(slicer=key):
+                self.assertIn(report.vid(f"{report.P2}/input/{key}"), names)
+
+
 class TestGeneratedPartsAreComplete(unittest.TestCase):
     REQUIRED = (
         "definition.pbir",
