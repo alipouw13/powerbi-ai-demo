@@ -38,7 +38,10 @@ tmp/
 semantic-model/agentevals/definition/
 semantic-model/agentevals/definition.pbism
 semantic-model/agentevals/.platform
+semantic-model/agentevals/report/
 .agentevals_tmdl/
+.ref_contoso/
+.ref_agentevals/
 
 # Local only: customer demo talk track, not part of the repo
 validation/demo-script.md
