@@ -32,5 +32,16 @@ scratch/
 tmp/
 *.log
 
+# Generated TMDL for the AgentEvals model. The spec is
+# validation/build_agentevals_model.py; the generated definition carries the
+# workspace and SQL database ids, so it stays out of source control.
+semantic-model/agentevals/definition/
+semantic-model/agentevals/definition.pbism
+semantic-model/agentevals/.platform
+semantic-model/agentevals/report/
+.agentevals_tmdl/
+.ref_contoso/
+.ref_agentevals/
+
 # Local only: customer demo talk track, not part of the repo
 validation/demo-script.md

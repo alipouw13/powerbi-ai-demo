@@ -179,6 +179,75 @@ Three rules from that spec are worth knowing even if you never run it:
 
 ---
 
+## Reading the loop from Power BI
+
+The loop's state lives in a SQL database in Fabric, and a Direct Lake semantic
+model called `AgentEvals` sits over it, so the accuracy story can be read in a
+report rather than in a KQL dashboard — and asked of Copilot.
+
+Fabric generates that model for you, and what it generates is a copy of the
+database: `runs`, `answers`, snake_case columns, no relationships, no
+measures, and every integer set to sum. That last one matters more than it
+looks. A run scores 13 out of 15. Summed across ten runs it is 130 out of 15,
+which is not a wrong answer so much as a meaningless one, and it looks
+entirely reasonable on a card.
+
+So the model gets the same treatment as the Contoso Coffee model in phase 3,
+from a spec rather than by hand:
+
+```bash
+python validation/build_agentevals_model.py --apply
+```
+
+That renames the tables to what people say out loud, hides all 32 keys and raw
+counts, describes every remaining table, column and measure, wires the nine
+relationships Fabric did not create, and adds
+[35 measures](../semantic-model/agentevals/measures.dax) — then reframes the
+model and evaluates every measure, naming any that fail.
+
+The last part is not decoration. Fabric accepts a measure whose DAX does not
+compile, leaves it in an error state and says nothing, so it is invisible
+until somebody drops it on a visual. Two got through the first deployment of
+this file: a variable called `Current`, which is a reserved word, and a table
+variable used as if it were a table.
+
+The AI instructions, AI data schema and verified answers for it are in
+[`semantic-model/agentevals/ai-instructions.md`](../semantic-model/agentevals/ai-instructions.md).
+The important instruction is the one about summing: *scores belong to a single
+run and must never be added together.* The model that measures AI accuracy has
+to survive being asked about by AI.
+
+### Closing the loop in the report
+
+The report over that model is a translytical task flow, built the same way:
+
+```bash
+python validation/build_agentevals_report.py --apply
+```
+
+Two pages. **Agent Answer Quality** is the evidence: score, the split of
+grades, every question with the answer it got, and the sentence the harness
+proposes as a fix. **Review & Approve Fixes** is the decision: the queue, an
+input slicer for the decision and one for the note, and a button bound to the
+`approve_remediation` user data function, which writes the row to
+`dbo.approvals`.
+
+It is deliberately the same shape as the product-reviews translytical demo,
+because the shapes are the same: a question is the product, an answer is the
+review, the harness's proposed instruction is the agent comment, and the
+approval is the employee comment written back.
+
+With one difference. In that demo the employee comment is the outcome. Here
+approving only records a decision — the notebook applies it and the next run
+proves it worked — so the page counts *approved*, *awaiting apply* and
+*verified* separately and says why. A report that collapsed them would claim a
+fix nobody has written.
+
+[`semantic-model/agentevals/report.md`](../semantic-model/agentevals/report.md)
+covers the layout and the one manual step, binding the button to the function.
+
+---
+
 ## Repo checks before you present
 
 Run through the checklist at the bottom of

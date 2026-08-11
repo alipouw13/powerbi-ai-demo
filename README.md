@@ -383,6 +383,7 @@ data/                synthetic CSVs and the seeded generator that made them
 diagram/             the architecture diagram and the generator that produces it
 fabric/              notebooks: land the CSVs, and evaluate the data agent
 semantic-model/      DAX measures, the AI instructions text, the AI readiness checklist
+semantic-model/agentevals/  the same, for the model that measures the loop itself
 validation/          question bank, ground truth, scorecard, eval harness and tests
 docs/                one short guide per phase
 SPEC.md              the demo contract: phases, personas, success criteria
