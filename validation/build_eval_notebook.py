@@ -34,6 +34,21 @@ LAKEHOUSE_NAME = "LH_ContosoCoffee"
 KUSTO_DB = "EH_AgentEval"
 
 
+def _bank_sha() -> str:
+    """The hash of the question bank this notebook embeds.
+
+    Computed at build time from the same parser the publisher uses, so the
+    notebook and dbo.questions cannot disagree about which instrument a run
+    was measured with.
+    """
+    import publish_question_bank
+
+    return publish_question_bank.bank_sha()
+
+
+BANK_SHA = _bank_sha()
+
+
 def strip_module_docstring(source: str) -> str:
     """Drop the module docstring and __future__ import from an embedded copy."""
     source = re.sub(r'\A\s*""".*?"""\s*', "", source, flags=re.DOTALL)
@@ -130,6 +145,17 @@ def build_cells() -> list[dict]:
                         "# possible, because Activator cannot watch a Delta table directly.\n"
                         f'KUSTO_URI = "{KUSTO_URI}"\n'
                         f'KUSTO_DB = "{KUSTO_DB}"\n'
+                        "\n"
+                        "# SQL database that the approval function and the report read.\n"
+                        "# Empty means skip the SQL publish, so the notebook still runs\n"
+                        "# in a deployment that has not created the database yet.\n"
+                        'SQL_CONNECTION_STRING = ""\n'
+                        "\n"
+                        "# Which version of the question bank this run measured with.\n"
+                        "# Runs with different hashes are not comparable, and recording\n"
+                        "# it is what makes that visible rather than plotting them\n"
+                        "# together as though the instrument had not changed.\n"
+                        f'BANK_SHA = "{BANK_SHA}"\n'
         ).splitlines(True),
     })
 
@@ -224,7 +250,22 @@ def build_cells() -> list[dict]:
     cells.append(code(KUSTO_CELL))
 
     cells.append(md(
-        "## 10. Verify past remediations\n"
+        "## 10. Publish to SQL for the report\n"
+        "\n"
+        "The same three results, into the SQL database the approval function and\n"
+        "the Power BI report read. The eventhouse stays the event spine because\n"
+        "Activator can only watch that; SQL is what a managed connection can\n"
+        "reach and what Direct Lake can serve.\n"
+        "\n"
+        "Every run records the `bank_sha` it was measured with. Two runs scored\n"
+        "against different versions of the question bank are not comparable, and\n"
+        "recording the hash is what makes that visible rather than plotting them\n"
+        "on one line as though they were."
+    ))
+    cells.append(code(SQL_CELL))
+
+    cells.append(md(
+        "## 11. Verify past remediations\n"
         "\n"
         "A fix is not verified because it merged. It is verified because the\n"
         "question it was aimed at now passes repeatedly.\n"
@@ -238,7 +279,7 @@ def build_cells() -> list[dict]:
     cells.append(code(VERIFY_CELL))
 
     cells.append(md(
-        "## 11. Alert payload\n"
+        "## 12. Alert payload\n"
         "\n"
         "The thresholds live in tested Python rather than being buried in a rule\n"
         "definition in the portal. Activator reads `alert_severity` and\n"
@@ -560,8 +601,85 @@ print(f"previous score {previous_score} -> {summary['score']}")
 '''
 
 
-VERIFY_CELL = '''from pyspark.sql.types import BooleanType
+SQL_CELL = '''import struct
 
+import notebookutils
+
+# The SQL database's own endpoint, not the lakehouse SQL endpoint. Left empty
+# in source control like every other deployment value.
+if not SQL_CONNECTION_STRING:
+    print("SQL_CONNECTION_STRING is empty, skipping the SQL publish")
+else:
+    import pyodbc
+
+    # A Fabric SQL database takes an Entra access token rather than a
+    # password, passed through the ODBC pre-login attribute. The struct
+    # packing is the documented shape for SQL_COPT_SS_ACCESS_TOKEN.
+    sql_token = notebookutils.credentials.getToken("https://database.windows.net/")
+    encoded = sql_token.encode("utf-16-le")
+    token_struct = struct.pack(f"<I{len(encoded)}s", len(encoded), encoded)
+
+    sql = pyodbc.connect(SQL_CONNECTION_STRING, attrs_before={1256: token_struct})
+    cursor = sql.cursor()
+    try:
+        # MERGE rather than INSERT throughout. A notebook that is re-run after
+        # a partial failure must not double count a run, and a primary key
+        # violation halfway through is worse than an idempotent write.
+        cursor.execute(
+            "MERGE dbo.runs AS t USING (SELECT ? AS run_id) AS s "
+            "ON t.run_id = s.run_id "
+            "WHEN NOT MATCHED THEN INSERT (run_id, run_ts, surface, bank_sha, "
+            "  score, max_score, previous_score, flake_count, failure_count, "
+            "  guardrails_lost_count, errored_count, alert_severity, alert_detail) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            run_id, run_id, run_ts, SURFACE, BANK_SHA,
+            int(summary["score"]), int(summary["max_score"]), previous_score,
+            int(summary["flake_count"]), len(summary["failure_questions"]),
+            len(summary["guardrails_lost"]), len(summary["errored_questions"]),
+            alert_severity,
+            " | ".join(f"[{a['severity']}] {a['condition']}: {a['detail']}"
+                       for a in alerts),
+        )
+
+        for r in ordered:
+            for a in r.attempts:
+                cursor.execute(
+                    "MERGE dbo.answers AS t "
+                    "USING (SELECT ? AS run_id, ? AS question_id, ? AS attempt) AS s "
+                    "ON t.run_id = s.run_id AND t.question_id = s.question_id "
+                    "  AND t.attempt = s.attempt "
+                    "WHEN NOT MATCHED THEN INSERT (run_id, question_id, attempt, "
+                    "  grade, classification, detail, latency_ms, answer) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?);",
+                    run_id, r.question_id, int(a.attempt),
+                    run_id, r.question_id, int(a.attempt), a.grade,
+                    r.classification, a.detail, int(a.latency_ms), a.answer,
+                )
+
+        for p in proposals:
+            cursor.execute(
+                "MERGE dbo.defects AS t "
+                "USING (SELECT ? AS run_id, ? AS question_id) AS s "
+                "ON t.run_id = s.run_id AND t.question_id = s.question_id "
+                "WHEN NOT MATCHED THEN INSERT (run_id, question_id, "
+                "  classification, tier, fix_target, instruction_target, "
+                "  proposed_instruction, rationale, auto_appliable) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                run_id, p.question_id,
+                run_id, p.question_id, p.classification, int(p.tier),
+                p.fix_target, p.instruction_target, p.proposed_instruction,
+                p.rationale, 1 if p.auto_appliable else 0,
+            )
+
+        sql.commit()
+        print(f"published {len(ordered)} question(s) and {len(proposals)} defect(s) to SQL")
+    finally:
+        cursor.close()
+        sql.close()
+'''
+
+
+VERIFY_CELL = '''from pyspark.sql.types import BooleanType
 # A remediation is verified when the question it targeted reaches stable pass
 # in a run that started after the change was applied. Anything earlier proves
 # nothing, because the model had not changed yet.

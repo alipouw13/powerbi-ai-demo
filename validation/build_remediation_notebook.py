@@ -150,7 +150,16 @@ def build_cells() -> list[dict]:
     cells.append(code(RECORD_CELL))
 
     cells.append(md(
-        "## 8. Verify\n"
+        "## 8. Hand off the agent-targeted work\n"
+        "\n"
+        "A reference run rather than `%run`, so `agent_remediate_agent` gets its\n"
+        "own session and the SDK it installs cannot affect this one. Skipped\n"
+        "entirely when there is no agent-targeted work, which is most runs."
+    ))
+    cells.append(code(HANDOFF_CELL))
+
+    cells.append(md(
+        "## 9. Verify\n"
         "\n"
         "Re-run the evaluation notebook. If the affected questions reach stable pass\n"
         "the loop has closed. If they have not, the instruction was the wrong fix\n"
@@ -159,6 +168,32 @@ def build_cells() -> list[dict]:
     cells.append(code(VERIFY_CELL))
 
     return cells
+
+
+HANDOFF_CELL = '''if not agent_pending:
+    print("no agent-targeted approvals, nothing to hand off")
+else:
+    approval_ids = ",".join(r["approval_id"] for r in agent_pending)
+    print(f"handing {len(agent_pending)} approval(s) to agent_remediate_agent")
+
+    # A failure here must not fail this run. The model-targeted work above has
+    # already been applied and recorded, and reporting the whole run as failed
+    # would send somebody looking for a semantic model change that did land.
+    try:
+        result = notebookutils.notebook.run(
+            "agent_remediate_agent",
+            600,
+            {
+                "APPROVAL_IDS": approval_ids,
+                "APPROVED_BY": APPROVED_BY,
+                "DRY_RUN": str(DRY_RUN).lower(),
+            },
+        )
+        print(f"agent_remediate_agent returned: {result}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"agent remediation failed: {exc}")
+        print("The approvals stay open, so the next run picks them up again.")
+'''
 
 
 APPROVALS_CELL = '''import notebookutils
@@ -247,16 +282,27 @@ except Exception:  # noqa: BLE001
     executing_identity = "unknown"
 print(f"running as: {executing_identity}")
 
-# Only model-targeted instructions change the DAX, so anything else is
-# refused rather than quietly applied somewhere it cannot work.
-targets = {row["instruction_target"] for row in pending}
-unsupported = targets - {TARGET_SEMANTIC_MODEL}
+# Split by target rather than refusing everything.
+#
+# Only model-targeted instructions change the DAX. Agent-targeted ones change
+# how an answer reads, which is a real fix for a real defect class, but it
+# needs the data agent SDK and therefore a pip install. That is confined to
+# agent_remediate_agent, reached below with a reference run so it gets its own
+# session and cannot take this path down with it.
+agent_pending = [r for r in pending if r["instruction_target"] == TARGET_DATA_AGENT]
+pending = [r for r in pending if r["instruction_target"] == TARGET_SEMANTIC_MODEL]
+
+unsupported = {
+    row["instruction_target"] for row in agent_pending + pending
+} - {TARGET_SEMANTIC_MODEL, TARGET_DATA_AGENT}
 if unsupported:
     raise ValueError(
-        f"unsupported instruction targets {unsupported}. Agent-level instructions "
-        "are not passed to the DAX generation step, so applying a model-class fix "
-        "there would look like a change and do nothing."
+        f"unsupported instruction targets {unsupported}. An instruction has to "
+        "land somewhere that can act on it, and anything else would look like "
+        "a change and do nothing."
     )
+
+print(f"{len(pending)} model-targeted, {len(agent_pending)} agent-targeted")
 
 model_script = json.loads(
     fabric.get_tmsl(SEMANTIC_MODEL_NAME, workspace=WORKSPACE_ID)

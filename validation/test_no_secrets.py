@@ -209,6 +209,11 @@ class TestDeploymentScriptsRequireConfiguration(unittest.TestCase):
         "build_activator.py": ["FABRIC_WORKSPACE_ID", "FABRIC_KQL_DATABASE_ID"],
         "build_dashboard.py": ["FABRIC_WORKSPACE_ID", "FABRIC_KUSTO_URI"],
         "build_schedule.py": ["FABRIC_WORKSPACE_ID", "FABRIC_EVAL_NOTEBOOK_ID"],
+        # No Key Vault variables any more. The approval function reaches its
+        # store with a managed connection, so a workspace is all it needs.
+        "build_approval_function.py": ["FABRIC_WORKSPACE_ID"],
+        "build_sql_schema.py": ["FABRIC_WORKSPACE_ID"],
+        "apply_schema.py": ["FABRIC_SQL_CONNECTION_STRING"],
         "approve.py": ["FABRIC_KUSTO_URI"],
         "file_issues.py": ["FABRIC_KUSTO_URI"],
     }

@@ -132,14 +132,22 @@ short version is:
 
 1. A Fabric notebook asks every question three times and grades against ground truth.
 2. Results go to Delta, and a summary goes to an eventhouse.
-3. An Activator rule raises a Teams alert when a run regresses.
+3. An Activator rule emails an alert when a run regresses, and a second rule emails a
+   digest whenever a run leaves defects nobody has approved or rejected yet.
 4. A real-time dashboard shows the failures next to the exact sentence that would fix each
-   one.
-5. A human approves one sentence with
-   `python validation/approve.py --question Q10 --by you@example.com`.
-6. A second Activator rule runs the remediation notebook, which appends that sentence to
+   one. It is read only: it is where you decide, not where you act.
+5. A human approves one sentence, from whichever surface suits them: a button in the
+   report, an Adaptive Card in Outlook, or
+   `python validation/approve.py --question Q10 --by you@example.com`. All three write the
+   same row.
+6. A third Activator rule runs the remediation notebook, which appends that sentence to
    the model AI instructions and proves the write landed.
 7. The next evaluation run says whether it actually worked.
+
+Only step 5 is a person, and only step 5 changes the model.
+[`validation/approval-by-email.md`](../validation/approval-by-email.md) compares the three
+surfaces. The report button is the one worth building, because it is the only one where
+the approver's identity is read from their token rather than typed into a field.
 
 Three things it caught immediately that the manual pass cannot:
 

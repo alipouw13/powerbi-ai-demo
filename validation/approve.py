@@ -23,6 +23,7 @@ Usage:
     python validation/approve.py --question Q10 --by you@example.com
     python validation/approve.py --question Q12 --by you@example.com --reject \\
         --note "wrong diagnosis, the measure is at fault"
+    python validation/approve.py --question Q10 --card
 """
 
 from __future__ import annotations
@@ -34,11 +35,14 @@ import sys
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from approval_card import (  # noqa: E402
+    approval_command,
+    card_json,
+)
 from config import (  # noqa: E402
     KUSTO_DATABASE_NAME as KUSTO_DB,
     KUSTO_URI as CLUSTER_URI,
@@ -109,10 +113,6 @@ def rows(result: dict) -> list[list]:
     return result["Tables"][0]["Rows"]
 
 
-def escape(value: str) -> str:
-    return (value or "").replace("\\", "\\\\").replace('"', '\\"')
-
-
 def list_queue() -> int:
     data = rows(kusto(QUEUE_KQL))
     if not data:
@@ -147,17 +147,42 @@ def show_open() -> int:
     return 0
 
 
-def decide(question_id: str, approved_by: str, reject: bool, note: str) -> int:
-    result = kusto(
+def defect(question_id: str) -> tuple[str, str, int, bool, str, str]:
+    """The latest defect for a question, or exit."""
+    data = rows(kusto(
         f"eval_defects | where question_id == '{question_id}' "
         "| summarize arg_max(run_ts, *) by question_id "
-        "| project proposed_instruction, instruction_target, tier, auto_appliable"
-    )
-    data = rows(result)
+        "| project proposed_instruction, instruction_target, tier, auto_appliable, "
+        "classification, rationale"
+    ))
     if not data:
         raise SystemExit(f"no defect found for {question_id}")
+    return tuple(data[0])  # type: ignore[return-value]
 
-    instruction, target, tier, auto = data[0]
+
+def show_card(question_id: str) -> int:
+    """Print the Adaptive Card for one defect.
+
+    The same card a flow posts to Outlook or Teams, rendered with this
+    defect's values, so it can be read before anyone builds the flow. Run it
+    without --question to get the flow template with its bindings intact.
+    """
+    if not question_id:
+        print(card_json())
+        return 0
+
+    instruction, _target, _tier, _auto, classification, rationale = defect(question_id)
+    print(card_json(
+        question_id=question_id,
+        classification=classification,
+        proposed_instruction=instruction,
+        rationale=rationale,
+    ))
+    return 0
+
+
+def decide(question_id: str, approved_by: str, reject: bool, note: str) -> int:
+    instruction, target, tier, auto, _classification, _rationale = defect(question_id)
     decision = "rejected" if reject else "approved"
 
     if decision == "approved" and not auto:
@@ -178,18 +203,19 @@ def decide(question_id: str, approved_by: str, reject: bool, note: str) -> int:
             )
 
     approval_id = str(uuid.uuid4())
-    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
+    # Built by approval_card.approval_command so that this command and the one
+    # a Power Automate card writes are the same command.
     kusto(
-        ".set-or-append eval_approvals <| print "
-        f'approval_id="{approval_id}", '
-        f"approved_ts=datetime({stamp}), "
-        f'question_id="{escape(question_id)}", '
-        f'instruction_target="{escape(target)}", '
-        f'proposed_instruction="{escape(instruction)}", '
-        f'decision="{decision}", '
-        f'approved_by="{escape(approved_by)}", '
-        f'note="{escape(note)}"',
+        approval_command(
+            question_id=question_id,
+            instruction_target=target,
+            proposed_instruction=instruction,
+            approved_by=approved_by,
+            decision=decision,
+            note=note,
+            approval_id=approval_id,
+        ),
         endpoint="mgmt",
     )
 
@@ -211,10 +237,18 @@ def main() -> int:
     parser.add_argument("--by", help="who is approving. Required to approve")
     parser.add_argument("--reject", action="store_true")
     parser.add_argument("--note", default="")
+    parser.add_argument("--card", action="store_true",
+                        help="print the Adaptive Card a flow would post, and exit")
     args = parser.parse_args()
+
+    if args.card and not args.question:
+        # No question means the flow template, which needs no cluster at all.
+        return show_card("")
 
     require("FABRIC_KUSTO_URI")
 
+    if args.card:
+        return show_card(args.question)
     if args.open:
         return show_open()
     if args.list or not args.question:

@@ -19,23 +19,34 @@ This spec describes the production version, and the repo now implements it.
 | [`eval_harness.py`](eval_harness.py) | repo | Pure grading, classification, fix routing and instruction merging. No Fabric imports, so all of it is unit tested on a laptop |
 | [`agent_client.py`](agent_client.py) | repo | Standard library MCP client for the data agent (preview) |
 | [`run_eval.py`](run_eval.py) | repo | Runs the loop from a laptop, for development and debugging |
-| [`approve.py`](approve.py) | repo | The human gate. Lists the queue, approves or rejects one line at a time |
+| [`approve.py`](approve.py) | repo | The human gate. Lists the queue, approves or rejects one line at a time, and prints the approval card |
+| [`approval_card.py`](approval_card.py) | repo | The approval contract: one Adaptive Card and one Kusto append command, shared by the command line and any flow |
+| [`build_approval_function.py`](build_approval_function.py) | repo | Generates and deploys the approval user data function, the one surface where the approver is verified rather than typed |
 | [`build_eval_notebook.py`](build_eval_notebook.py) | repo | Generates the eval notebook so the embedded copy cannot drift |
 | [`build_remediation_notebook.py`](build_remediation_notebook.py) | repo | Generates the remediation notebook |
-| [`build_activator.py`](build_activator.py) | repo | Creates both Activator rules through the Fabric REST API |
+| [`build_activator.py`](build_activator.py) | repo | Creates all three Activator rules through the Fabric REST API |
 | [`config.py`](config.py) | repo | Deployment values, read from the environment, with fail fast |
 | [`test_no_secrets.py`](test_no_secrets.py) | repo | Proves no tenant id, hostname or address is committed |
 | [`build_dashboard.py`](build_dashboard.py) | repo | Creates the real-time dashboard, and runs the load endpoint's validation rules first |
 | [`build_schedule.py`](build_schedule.py) | repo | Puts the eval notebook on a daily schedule |
 | [`file_issues.py`](file_issues.py) | repo | Files tier 2 defects as GitHub issues, with evidence |
-| [`approval-by-email.md`](approval-by-email.md) | repo | The Outlook approval card, and the Teams swap |
+| [`approval-by-email.md`](approval-by-email.md) | repo | The approval surfaces, the deployment order, and the Desktop report walkthrough |
+| [`writeback-spec.md`](writeback-spec.md) | repo | The SQL writeback design, and what of it is built |
+| [`build_sql_schema.py`](build_sql_schema.py) | repo | Generates `schema.sql` and creates the SQL database |
+| [`publish_question_bank.py`](publish_question_bank.py) | repo | Publishes the bank from git to SQL, stamped with `bank_sha` |
+| [`build_mirror_notebook.py`](build_mirror_notebook.py) | repo | Copies approvals to the eventhouse so Activator can see them, and remediations back |
+| [`apply_schema.py`](apply_schema.py) | repo | Applies schema.sql and publishes the question bank over the SQL endpoint |
+| [`build_agent_remediation_notebook.py`](build_agent_remediation_notebook.py) | repo | The agent instruction path, isolated from the model path |
 | [`test_dashboard.py`](test_dashboard.py) | repo | Asserts the dashboard definition would load, without opening a browser |
+| [`test_activator.py`](test_activator.py) | repo | Asserts each rule can fire at all, and that the approval command cannot be injected into |
+| [`test_approval_function.py`](test_approval_function.py) | repo | Runs the function against a stubbed Fabric runtime, and proves the approver cannot be passed in |
 | [`test_eval_harness.py`](test_eval_harness.py) | repo | Grading, routing and merge tests, including replays of real agent answers |
 | [`test_notebook_drift.py`](test_notebook_drift.py) | repo | Regenerates both notebooks and executes their embedded code |
 | `agent_eval` notebook | Fabric | Runs the bank, grades, writes Delta, publishes to the eventhouse |
 | `agent_remediate` notebook | Fabric | Applies an approved instruction, backs up first, proves it persisted |
 | `EH_AgentEval` eventhouse | Fabric | The event spine Activator can watch |
-| `Agent Accuracy Alerts` | Fabric | Two rules: alert on a high severity run, and apply an approved remediation |
+| `Agent Accuracy Alerts` | Fabric | Three rules: alert on a high severity run, chase the approval queue, and apply an approved remediation |
+| `Approve remediation` | Fabric | User data function. Records a decision, with the approver read from the caller's token |
 | `Agent Accuracy` dashboard | Fabric | Score, instability, alerts, and the remediation queue |
 
 Run the tests with:
@@ -71,19 +82,27 @@ id pasted in next month is caught as well as the ones removed today.
         |  writes eval_runs, eval_results, eval_defects
         |  each defect carries the literal sentence to add
         v
-  Activator rule 1 ---> Teams: a run regressed
+  Activator rule 1 ---> email: a run regressed (high severity only)
+  Activator rule 2 ---> email: n defects are waiting for a decision
         |
         v
   a human reads the dashboard and runs
      python validation/approve.py --question Q10 --by you@example.com
         |  writes eval_approvals
         v
-  Activator rule 2 ---> runs agent_remediate
+  Activator rule 3 ---> runs agent_remediate
         |  appends the approved line to the model AI instructions
         |  backs up first, proves the write persisted
         v
   agent_eval again ---> did the score actually move
 ```
+
+Rules 1 and 2 answer different questions and both are needed. Rule 1 is "did
+this run get worse", which is a change. Rule 2 is "is anything waiting for
+me", which is a state, and a state does not raise itself: a run steady at
+medium severity, or a high severity email that arrived last week and was never
+acted on, both look identical to silence. If the queue has rows in it and no
+mail has arrived, rule 2 is the one to check.
 
 ### Where the human actually approves, today
 
@@ -92,30 +111,46 @@ it is.
 
 | Surface | What it does today | Can you approve from it |
 | --- | --- | --- |
-| Teams alert from Activator | Tells you a run regressed, with the detail | No. Activator's Teams action sends a notification, not an interactive card |
-| Real-time dashboard | Shows the queue and the exact sentence per defect | No. A KQL dashboard is read only. It is where you decide, not where you act |
-| `approve.py` | Writes the approval row that everything else keys off | Yes, and it is the only place |
+| Email alert from Activator | Tells you a run regressed, or that the queue has n defects waiting | No. Activator's email and Teams actions send a notification, not an interactive card |
+| Real-time dashboard | Shows the queue and the exact sentence per defect | No. A KQL dashboard is read only. It is where you decide, not where you act. The tile title says "approve or reject each line" because that is the decision it supports, not a control it offers |
+| `approve.py` | Writes the approval row that everything else keys off | Yes, and it is the only surface that needs nothing else deployed |
+| `Approve remediation` function | Same row, with the approver read from the caller's token | Yes, once deployed. Built by [`build_approval_function.py`](build_approval_function.py) |
+| Power BI report button | Calls that function from next to the queue | Yes, once the button is added to the report by hand |
+| Power Automate card | Not deployed here. Posts the card and calls the function or writes the row | Yes, once built. See [`approval-by-email.md`](approval-by-email.md) |
 
-So the *trigger* is automated and the *decision* is a command line. Once the
-approval row exists, everything after it is hands off: Activator sees the
-decision within a minute, runs the remediation, and the next evaluation says
-whether it worked.
+So the *trigger* is automated and the *decision* is a person. Once the approval
+row exists, everything after it is hands off: Activator sees the decision
+within a minute, runs the remediation, and the next evaluation says whether it
+worked.
 
-The remaining gap is the click. Closing it needs an interactive Adaptive Card,
-which Activator cannot send on its own: the rule would have to call a Power
-Automate custom action, the flow posts a card with Approve and Reject, and the
-card's response writes the same `eval_approvals` row that `approve.py` writes
-today. Nothing downstream changes, because everything already keys off that
-row rather than off who created it.
+**Where the click should live.** The three surfaces differ in one way that
+matters, which is whether `approved_by` is verified or asserted:
+
+| Surface | Where `approved_by` comes from |
+| --- | --- |
+| `approve.py` | The `--by` argument. Whatever you type |
+| Power Automate writing the row itself | A flow expression, usually the responder's email. Whatever the flow author bound |
+| The user data function | `UserDataFunctionContext.executing_user`, filled by the platform from the caller's Entra token |
+
+Only the third is evidence. That is why `approved_by` is not a parameter of
+`approve_remediation` and there is a test that keeps it that way, and it is why
+a flow that posts the card should call the function rather than write the row.
+
+The function still does not apply anything. It writes the row and returns, and
+Activator starts the notebook. If the function could start the notebook, anyone
+who could reach the function could run a job against a governed model.
 
 ### One rough edge
 
-`approve.py` writes the approval to the eventhouse, which is what Activator
-watches. The remediation notebook reads approvals from Delta, because it needs
-an `applied` flag it can update and Kusto tables are append only. Right now
-those two are reconciled by hand with `--emit-delta`. It works, and it is the
-weakest joint in the design. Either the notebook should read approvals from
-the eventhouse, or `approve.py` should write both in one step.
+`approve.py` writes the approval straight to the eventhouse. That still works,
+because the remediation notebook reads the eventhouse, but the row never
+reaches `dbo.approvals`, so the report will not show it and
+`dbo.open_approvals` will not count it.
+
+It is the break-glass path now, for when the report is unavailable. The report
+button is the normal one, and it is also the only surface where the approver
+is verified rather than typed. If the CLI becomes the normal path again, it
+should be pointed at SQL.
 
 ### Three decisions worth knowing
 
@@ -528,14 +563,25 @@ Each step is useful on its own. The first eight are built and running.
 | A | One approval store, open work derived not stored | Built |
 | B | Daily schedule on the eval notebook | Built |
 | C | Email alerts, and the Outlook approval card specified | Built, flow not wired |
+| F | Queue reminder rule, so waiting work chases itself | Built |
+| G | Approval function, approver verified from the caller's token | Built, report button added by hand |
 | D | Auto verification of applied remediations | Built |
 | E | Tier 2 issues with per-attempt evidence | Built |
 
 ### What is genuinely left
 
 **The Power Automate flow.** [`approval-by-email.md`](approval-by-email.md) specifies it
-exactly, including the queries and the card, but it has to be created in Power Automate by
-a person. Everything it talks to already exists and is tested.
+exactly, including the queries and the card, and the card itself is produced by
+[`approval_card.py`](approval_card.py), so what a person pastes into the flow comes out of
+tested code rather than out of a document. The flow still has to be created in Power
+Automate by a person, because a flow cannot be deployed from this repo. Everything it
+talks to already exists and is tested.
+
+**The report button, and three portal steps.** The function, the schema, the
+pipeline and both notebooks deploy from this repo. Running `schema.sql`, adding the
+SQL connection to the function item, scheduling the mirror, and building the report in
+Desktop are done by a person. None of them is scriptable, and the report is where the
+approver's identity finally becomes evidence rather than something typed.
 
 **Nothing else is designed and unbuilt.** The next thing worth doing is running it for a
 few weeks and seeing which of the assumptions here turn out to be wrong.
@@ -595,9 +641,25 @@ about to create items somewhere unexpected.
 | 3 | The schedule exists and is on | `python validation/build_schedule.py --list` | Enabled, every 1440 minutes |
 | 4 | The eval notebook runs clean | `agent_eval` | Around nine minutes, ends with a score and a written run |
 | 5 | The score history is growing | `eval_runs` | One row per run, `previous_score` populated after the first |
-| 6 | Both activator rules are on | `Agent Accuracy Alerts` | Two rules, both started |
+| 6 | All three activator rules are on | `Agent Accuracy Alerts` | Three rules, all started |
 | 7 | The alert actually arrives | Outlook | An email naming the questions that regressed |
+| 7b | The queue chases you | Outlook | After a run leaves defects undecided, a second email with `pending_count` and the question ids |
 | 8 | The queue matches the last run | `python validation/approve.py --list` | Same question ids as `eval_defects` |
+
+If the dashboard shows a queue but no mail ever arrives, the cause is almost
+always one of three, in this order:
+
+1. **The rules were created after those runs.** An Activator KQL source only
+   evaluates rows whose event time falls in the window it is currently polling.
+   Defects from before the rule started running are in the queue, in the
+   dashboard, and permanently outside every window the rule will ever look at.
+   Run `agent_eval` once and watch for mail from that run.
+2. **Nothing was high severity.** Rule 1 only matches `alert_severity == "high"`,
+   so a run whose worst finding is `below_floor` or `agent_errors` is medium and
+   sends nothing. That is what rule 2 exists for.
+3. **`AGENT_ACCURACY_RECIPIENTS` was not set when the activator was deployed.**
+   The address is baked into the rule at build time, so changing the variable
+   afterwards does nothing until `build_activator.py` is run again.
 
 ### The one that proves the loop, end to end
 
