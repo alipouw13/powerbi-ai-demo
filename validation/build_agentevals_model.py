@@ -1242,31 +1242,55 @@ def query(model_id: str, dax: str) -> tuple[list[dict], str]:
 
 
 def verify(model_id: str) -> int:
-    """Evaluate every measure. A measure that cannot be evaluated is broken."""
+    """Check the deployed model, from the outside, the way a report sees it."""
     print()
-    everything = ", ".join(
-        f'"{m.name}", [{m.name}]' for m in MEASURES
+    problems = 0
+
+    # Table names first, and they are not a formality.
+    #
+    # A Direct Lake schema sync can reset table names to the source names,
+    # turning 'Evaluation Runs' back into 'runs'. When that happened, Fabric
+    # rewrote every measure to match, so all 36 still evaluated and this
+    # function reported a clean model while every visual in the report showed
+    # "Something's wrong with one or more fields". A report binds by name, and
+    # nothing else here was checking the names.
+    columns = ", ".join(
+        f"\"{table.name}\", COUNTROWS ( '{table.name}' )" for table in TABLES
     )
+    _, error = query(model_id, f"EVALUATE ROW ( {columns} )")
+    if error:
+        print("at least one table name does not resolve. Checking each.")
+        for table in TABLES:
+            _, failure = query(
+                model_id, f"EVALUATE ROW ( \"n\", COUNTROWS ( '{table.name}' ) )")
+            if failure:
+                problems += 1
+                print(f"  {table.name} is missing. The source name is "
+                      f"{table.source}, so a schema sync has probably reset "
+                      "it. Re-run this script with --apply.")
+    else:
+        print(f"all {len(TABLES)} table names resolve")
+
+    # Then the measures. Evaluating is a stronger check than reading a state
+    # flag, and it is the only one available: the executeQueries endpoint
+    # refuses INFO.MEASURES, so the model cannot be asked to describe itself.
+    everything = ", ".join(f'"{m.name}", [{m.name}]' for m in MEASURES)
     _, error = query(model_id, f"EVALUATE ROW ( {everything} )")
     if not error:
         print(f"all {len(MEASURES)} measures evaluate")
-        return 0
+        return 1 if problems else 0
 
-    # One query per measure, so the output names the broken ones rather than
-    # reporting that something, somewhere, is wrong.
     print("at least one measure failed. Checking them one at a time.")
-    broken: list[str] = []
     for measure in MEASURES:
         _, failure = query(model_id, f'EVALUATE ROW ( "v", [{measure.name}] )')
         if failure:
-            broken.append(measure.name)
+            problems += 1
             print(f"  {measure.name}")
-    if not broken:
-        print("no single measure failed, so the combined query is the problem:")
-        print(f"  {error}")
+    if problems:
+        print(f"\n{problems} problem(s). Fix the spec and re-run with --apply.")
         return 1
-    print(f"\n{len(broken)} broken measure(s). Fix the spec and re-run "
-          "with --apply.")
+    print("no single measure failed, so the combined query is the problem:")
+    print(f"  {error}")
     return 1
 
 

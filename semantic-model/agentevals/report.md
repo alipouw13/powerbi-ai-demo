@@ -179,3 +179,35 @@ knowing that a deleted workspace takes it with it.
 - Click the button once and check `dbo.approvals` has exactly one new row. A
   data function button that has not been styled for its loading state looks
   identical while it runs, and gets clicked twice.
+
+---
+
+## If every visual says "Something's wrong with one or more fields"
+
+Check the model's **table names** first:
+
+```bash
+python validation/build_agentevals_model.py --verify
+```
+
+A Direct Lake schema sync can reset table names to the source names, turning
+`Evaluation Runs` back into `runs`. The report binds by name, so every visual
+that touches that table breaks at once, and the error names a measure rather
+than a table:
+
+> Something's wrong with one or more fields: (Evaluation Runs) Score %
+
+Re-running `--apply` fixes it in about a minute.
+
+Two things make this worth knowing rather than guessing at.
+
+**The measures keep working.** Fabric rewrites their DAX to the new table
+name, so all 36 still evaluate. An earlier version of `--verify` checked only
+the measures and reported a clean model while the report was entirely broken.
+It now checks the table names first, and that is the check that matters.
+
+**`Evaluation Runs` is the only rename that can break.** Six of the seven
+model tables differ from their source only in case — `questions` to
+`Questions` — and DAX is case-insensitive, so a sync that reverts those
+changes nothing. `runs` to `Evaluation Runs` is the single genuine rename in
+the model, which makes it the single point of failure.
