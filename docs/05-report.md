@@ -201,6 +201,25 @@ seven identical bars is not.
 Where margin rate genuinely differs is by product, and the product page charts it there:
 52.17% on Coffee Beans against 80.92% on Herbal Tea, and 52.17% to 72.06% by category.
 
+### The same flat rate, failing the opposite way
+
+The `Executive Sales & Margin Overview` page had the mirror image of this problem.
+`Gross Margin % by Year-Month` was a line chart on an auto-scaled axis, so it ran from
+68.5% to 69.0% and drew a jagged line with sharp peaks and troughs. Monthly margin spans
+68.26% to 68.95%, a range of 0.68 percentage points with no seasonal pattern, so every one
+of those swings was sampling noise stretched over the full plot height. It sat directly
+beside `Total Net Sales by Year-Month`, which is a genuine rising trend, and the visual
+similarity invited the reader to treat both as equally meaningful.
+
+A bar chart of a flat rate overstates the level. A line chart of a flat rate overstates
+the volatility. Same auto-scaled axis, opposite lie.
+
+That axis is now pinned to 0 and 100% as well, so the line is flat, which is the true
+answer: margin is stable. This one matters more than it looks, because the visual is the
+pinned verified answer for "What is the trend of gross margin percentage by month?".
+Copilot hands this exact chart back when somebody asks that question, so a misleading
+axis here is a misleading AI answer, not just a misleading page.
+
 The measure was hardened at the same time, for a different reason. Written as
 `DIVIDE([Gross Margin], [Total Net Sales])` it returns exactly **1**, a perfect 100%
 margin, in any filter context that has net sales but no cost of goods sold. A refresh that
