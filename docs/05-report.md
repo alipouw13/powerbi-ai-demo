@@ -156,6 +156,47 @@ This is also why phase 4 matters. The AI instructions tell Copilot and the data 
 `Net Sales YoY %` needs a single year in context, so the same trap does not get reproduced
 in a chat answer where there is no visual to inspect.
 
+### The second bug: gross margin that reads as 100%
+
+The `Store & Region Performance` page had a `Gross Margin % by City` bar chart where every
+bar ran the full width of the plot, and a matrix whose `Gross Margin %` data bars were
+solid across every row. It read as a 100% margin on every city, which nobody believes for
+a coffee chain.
+
+The DAX was fine. `Gross Margin %` returns **68.65%** and always did. Two separate things
+made it *look* like 100%:
+
+1. **The bar chart had no fixed value axis.** Gross margin sits in a 68.5% to 68.9% band
+   across all eight cities, so Power BI auto-scaled the axis to end at the largest value
+   and every bar filled the plot edge to edge. The fix is a value axis pinned to 0 and 1,
+   which is what any rate charted as bar length needs. The bars now stop at roughly two
+   thirds of the plot, which is the honest picture.
+2. **The matrix had data bars on a rate column.** A data bar encodes magnitude as length.
+   On a column that barely varies it is full on every row regardless, so it carries no
+   information and invites the 100% misread. The data bars were removed from
+   `Gross Margin %` and kept on the amount columns, where length means something.
+
+The measure was hardened at the same time, for a different reason. Written as
+`DIVIDE([Gross Margin], [Total Net Sales])` it returns exactly **1**, a perfect 100%
+margin, in any filter context that has net sales but no cost of goods sold. A refresh that
+drops `cost_amount`, an uncosted product, or a filter that excludes every costed row all
+produce that answer silently. It now returns blank instead:
+
+```dax
+Gross Margin % =
+VAR NetSales = [Total Net Sales]
+VAR Cost = [Total Cost]
+RETURN
+    IF ( NOT ISBLANK ( Cost ), DIVIDE ( NetSales - Cost, NetSales ) )
+```
+
+Missing cost data now reads as missing. The totals are unchanged, because the demo data
+has a cost on every row.
+
+Worth saying out loud: two of the three problems here were presentation, not calculation.
+A correct measure drawn on an auto-scaled axis is still a wrong answer to the person
+reading the page, and Copilot will not set an axis range for you.
+
 ---
 
 ## What you do next, every time
