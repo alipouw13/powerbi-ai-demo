@@ -168,13 +168,38 @@ made it *look* like 100%:
 
 1. **The bar chart had no fixed value axis.** Gross margin sits in a 68.5% to 68.9% band
    across all eight cities, so Power BI auto-scaled the axis to end at the largest value
-   and every bar filled the plot edge to edge. The fix is a value axis pinned to 0 and 1,
-   which is what any rate charted as bar length needs. The bars now stop at roughly two
-   thirds of the plot, which is the honest picture.
+   and every bar filled the plot edge to edge. Pinning the axis to 0 and 1 is what any
+   rate charted as bar length needs, and it made the bars stop at roughly two thirds.
 2. **The matrix had data bars on a rate column.** A data bar encodes magnitude as length.
    On a column that barely varies it is full on every row regardless, so it carries no
    information and invites the 100% misread. The data bars were removed from
    `Gross Margin %` and kept on the amount columns, where length means something.
+
+Fixing the axis made the chart honest but left it useless: eight near-identical bars.
+That is worth understanding rather than hiding, because it is a property of the data and
+not of the measure.
+
+Gross margin rate in this dataset is **mathematically forced to be flat by city**. Every
+product carries a fixed `unit_cost` and `unit_price`, so each product's margin rate is a
+constant (81.25% on Herbal Tea down to 53.12% on Coffee Beans). The generator's
+`PRODUCT_DEMAND` weights are global rather than per store, so all eight cities sell the
+same mix within two percentage points, and a store's rate is just the sales-weighted
+average of those constants. Predicting each city's rate from its mix alone reproduces the
+actual rate to within a uniform 0.56%, which is the discount drag. Every other store-side
+cut is flat for the same reason: store type spans 68.51% to 68.72%, channel 68.63% to
+68.81%.
+
+So the chart was repointed at `Gross Margin` in dollars, which varies about three to one
+over the same cities, from $17,089 in Miami to $51,976 in New York. It stays on theme for
+a store page and answers a question an executive actually asks. The 0 to 1 axis was
+dropped along with it, because it is nonsense on a currency axis.
+
+The rate still belongs on the page as a number, which is why the KPI card and the matrix
+column keep it. A number reading 68.6% is honest. A bar of length 68.6% drawn next to
+seven identical bars is not.
+
+Where margin rate genuinely differs is by product, and the product page charts it there:
+52.17% on Coffee Beans against 80.92% on Herbal Tea, and 52.17% to 72.06% by category.
 
 The measure was hardened at the same time, for a different reason. Written as
 `DIVIDE([Gross Margin], [Total Net Sales])` it returns exactly **1**, a perfect 100%
@@ -193,9 +218,10 @@ RETURN
 Missing cost data now reads as missing. The totals are unchanged, because the demo data
 has a cost on every row.
 
-Worth saying out loud: two of the three problems here were presentation, not calculation.
-A correct measure drawn on an auto-scaled axis is still a wrong answer to the person
-reading the page, and Copilot will not set an axis range for you.
+Worth saying out loud: only one of these was a calculation problem. A correct measure on
+an auto-scaled axis is still a wrong answer to the person reading the page, and a correct
+measure on a dimension that cannot vary is a wasted visual. Copilot will not set an axis
+range for you, and it will not tell you that the dimension you picked has no signal in it.
 
 ---
 
