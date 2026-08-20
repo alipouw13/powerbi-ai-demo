@@ -145,6 +145,9 @@ short version is:
 7. The next evaluation run says whether it actually worked.
 
 Only step 5 is a person, and only step 5 changes the model.
+
+![The Agent Accuracy real-time dashboard with tiles for score over time, the latest run, instability over time, alerts raised, and a remediation queue listing each failing question with its proposed instruction change and approval status](images/08-agent-accuracy-dashboard.png)
+
 [`validation/approval-by-email.md`](../validation/approval-by-email.md) compares the three
 surfaces. The report button is the one worth building, because it is the only one where
 the approver's identity is read from their token rather than typed into a field.

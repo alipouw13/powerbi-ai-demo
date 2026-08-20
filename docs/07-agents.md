@@ -63,6 +63,8 @@ better routing, and lower latency.
    Microsoft 365 Copilot description, so it is how other systems decide to call your
    agent.
 
+![The Contoso Coffee Analyst data agent in Fabric: the Explorer pane shows the ContosoCoffee semantic model with the Date, Product, Sales and Store tables ticked, and the test canvas shows the agent's published description and sample question starters](images/07-data-agent-test.png)
+
 ### Why the instruction box is not where the work happens
 
 This is the single most useful thing to say out loud in this phase.
