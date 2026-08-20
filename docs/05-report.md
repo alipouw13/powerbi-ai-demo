@@ -156,6 +156,92 @@ This is also why phase 4 matters. The AI instructions tell Copilot and the data 
 `Net Sales YoY %` needs a single year in context, so the same trap does not get reproduced
 in a chat answer where there is no visual to inspect.
 
+### The second bug: gross margin that reads as 100%
+
+The `Store & Region Performance` page had a `Gross Margin % by City` bar chart where every
+bar ran the full width of the plot, and a matrix whose `Gross Margin %` data bars were
+solid across every row. It read as a 100% margin on every city, which nobody believes for
+a coffee chain.
+
+The DAX was fine. `Gross Margin %` returns **68.65%** and always did. Two separate things
+made it *look* like 100%:
+
+1. **The bar chart had no fixed value axis.** Gross margin sits in a 68.5% to 68.9% band
+   across all eight cities, so Power BI auto-scaled the axis to end at the largest value
+   and every bar filled the plot edge to edge. Pinning the axis to 0 and 1 is what any
+   rate charted as bar length needs, and it made the bars stop at roughly two thirds.
+2. **The matrix had data bars on a rate column.** A data bar encodes magnitude as length.
+   On a column that barely varies it is full on every row regardless, so it carries no
+   information and invites the 100% misread. The data bars were removed from
+   `Gross Margin %` and kept on the amount columns, where length means something.
+
+Fixing the axis made the chart honest but left it useless: eight near-identical bars.
+That is worth understanding rather than hiding, because it is a property of the data and
+not of the measure.
+
+Gross margin rate in this dataset is **mathematically forced to be flat by city**. Every
+product carries a fixed `unit_cost` and `unit_price`, so each product's margin rate is a
+constant (81.25% on Herbal Tea down to 53.12% on Coffee Beans). The generator's
+`PRODUCT_DEMAND` weights are global rather than per store, so all eight cities sell the
+same mix within two percentage points, and a store's rate is just the sales-weighted
+average of those constants. Predicting each city's rate from its mix alone reproduces the
+actual rate to within a uniform 0.56%, which is the discount drag. Every other store-side
+cut is flat for the same reason: store type spans 68.51% to 68.72%, channel 68.63% to
+68.81%.
+
+So the chart was repointed at `Gross Margin` in dollars, which varies about three to one
+over the same cities, from $17,089 in Miami to $51,976 in New York. It stays on theme for
+a store page and answers a question an executive actually asks. The 0 to 1 axis was
+dropped along with it, because it is nonsense on a currency axis.
+
+The rate still belongs on the page as a number, which is why the KPI card and the matrix
+column keep it. A number reading 68.6% is honest. A bar of length 68.6% drawn next to
+seven identical bars is not.
+
+Where margin rate genuinely differs is by product, and the product page charts it there:
+52.17% on Coffee Beans against 80.92% on Herbal Tea, and 52.17% to 72.06% by category.
+
+### The same flat rate, failing the opposite way
+
+The `Executive Sales & Margin Overview` page had the mirror image of this problem.
+`Gross Margin % by Year-Month` was a line chart on an auto-scaled axis, so it ran from
+68.5% to 69.0% and drew a jagged line with sharp peaks and troughs. Monthly margin spans
+68.26% to 68.95%, a range of 0.68 percentage points with no seasonal pattern, so every one
+of those swings was sampling noise stretched over the full plot height. It sat directly
+beside `Total Net Sales by Year-Month`, which is a genuine rising trend, and the visual
+similarity invited the reader to treat both as equally meaningful.
+
+A bar chart of a flat rate overstates the level. A line chart of a flat rate overstates
+the volatility. Same auto-scaled axis, opposite lie.
+
+That axis is now pinned to 0 and 100% as well, so the line is flat, which is the true
+answer: margin is stable. This one matters more than it looks, because the visual is the
+pinned verified answer for "What is the trend of gross margin percentage by month?".
+Copilot hands this exact chart back when somebody asks that question, so a misleading
+axis here is a misleading AI answer, not just a misleading page.
+
+The measure was hardened at the same time, for a different reason. Written as
+`DIVIDE([Gross Margin], [Total Net Sales])` it returns exactly **1**, a perfect 100%
+margin, in any filter context that has net sales but no cost of goods sold. A refresh that
+drops `cost_amount`, an uncosted product, or a filter that excludes every costed row all
+produce that answer silently. It now returns blank instead:
+
+```dax
+Gross Margin % =
+VAR NetSales = [Total Net Sales]
+VAR Cost = [Total Cost]
+RETURN
+    IF ( NOT ISBLANK ( Cost ), DIVIDE ( NetSales - Cost, NetSales ) )
+```
+
+Missing cost data now reads as missing. The totals are unchanged, because the demo data
+has a cost on every row.
+
+Worth saying out loud: only one of these was a calculation problem. A correct measure on
+an auto-scaled axis is still a wrong answer to the person reading the page, and a correct
+measure on a dimension that cannot vary is a wasted visual. Copilot will not set an axis
+range for you, and it will not tell you that the dimension you picked has no signal in it.
+
 ---
 
 ## What you do next, every time

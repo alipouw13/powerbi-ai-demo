@@ -51,14 +51,22 @@ COUNTROWS ( 'Sales' )
 // ---------------------------------------------------------------------------
 
 // Description: Calculates profit by subtracting Total Cost from Total Net Sales for the
-// current filters.
+// current filters. Returns blank when the filtered rows carry no cost of goods sold,
+// because reporting revenue with no cost as if it were all profit is wrong.
 Gross Margin =
-[Total Net Sales] - [Total Cost]
+VAR NetSales = [Total Net Sales]
+VAR Cost = [Total Cost]
+RETURN
+    IF ( NOT ISBLANK ( Cost ), NetSales - Cost )
 
 // Description: Shows gross margin as a percentage of Total Net Sales for the current
-// filter context.
+// filter context. Returns blank rather than 100% when the filtered rows carry no cost
+// of goods sold, so missing cost data reads as missing instead of as a perfect margin.
 Gross Margin % =
-DIVIDE ( [Gross Margin], [Total Net Sales] )
+VAR NetSales = [Total Net Sales]
+VAR Cost = [Total Cost]
+RETURN
+    IF ( NOT ISBLANK ( Cost ), DIVIDE ( NetSales - Cost, NetSales ) )
 
 // Description: Shows the share of Gross Sales that was given away as discounts for the
 // current filters.

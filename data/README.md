@@ -47,3 +47,26 @@ Deliberate quirks are built in so the demo has something to teach:
 - Key columns are numeric, so a model with default summarisation will happily sum them
 - `unit_price` and `unit_cost` are list values on the product dimension, so averaging
   them across sales lines gives a misleading answer
+
+## Known limitation: margin rate does not vary by store
+
+Gross margin percentage is effectively constant across every store-side cut: 68.51% to
+68.88% by city, 68.51% to 68.72% by store type, 68.63% to 68.81% by channel. This is a
+property of the generator, not a bug, and it is worth knowing before you build a visual
+on it.
+
+Two things cause it. Every product has a fixed `unit_price` and `unit_cost`, so a
+product's margin rate is a constant. `PRODUCT_DEMAND` is a single global weighting rather
+than a per-store one, so every store sells the same mix within two percentage points.
+A store's margin rate is therefore just the weighted average of the same constants, and
+it lands in the same place everywhere.
+
+Margin rate does vary meaningfully **by product**, from 53.12% on `Coffee Beans 1lb` to
+81.25% on `Herbal Tea`, and by category from 52.17% on Retail to 72.06% on Beverage. Cut
+margin rate by product or category. Cut margin *dollars* by store, city or region, where
+the three-to-one volume spread is the real signal.
+
+If you want rate to vary by store, add a per-store price or cost multiplier in
+`generate_data.py`. Be aware that this changes every published number, so it also means
+reloading the lakehouse and refreshing the totals quoted throughout `docs/` and
+`validation/`.
