@@ -637,6 +637,7 @@ about to create items somewhere unexpected.
 | # | Check | Where | What good looks like |
 | --- | --- | --- | --- |
 | 1 | The dashboard opens | `Agent Accuracy` | Seven tiles render. No "Missing migration" modal |
+| 1b | It is the only dashboard | Workspace item list | One KQL dashboard. An empty one with no tiles is a leftover probe from debugging `schema_version`, and should be deleted |
 | 2 | The remediation queue has rows | Same, middle tile | Each failing question with the exact sentence that would fix it |
 | 3 | The schedule exists and is on | `python validation/build_schedule.py --list` | Enabled, every 1440 minutes |
 | 4 | The eval notebook runs clean | `agent_eval` | Around nine minutes, ends with a score and a written run |

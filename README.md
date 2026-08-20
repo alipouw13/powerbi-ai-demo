@@ -40,6 +40,49 @@ than into the prompt.
 The diagram is generated, not drawn, so it stays true as the demo changes. See
 [`diagram/`](diagram/) to regenerate it or point it at your own data.
 
+### The flow, in one line
+
+Land the CSVs, model them, describe the model well enough for AI to read it, then ask the
+same 15 questions of every front door and score what comes back.
+
+```
+CSVs -> lakehouse -> semantic model -> prep for AI -> four front doors:
+                                                      report, Copilot pane,
+                                                      standalone Copilot, data agent
+```
+
+The accuracy loop below then scores what those four say, and sends every fix back into the
+model rather than into the prompt.
+
+### What you end up with
+
+One Fabric workspace, around two dozen items. These are the ones worth knowing:
+
+| Item | What it is |
+| --- | --- |
+| `LH_ContosoCoffee` | Lakehouse holding the four Delta tables the CSVs land in |
+| `ContosoCoffee` semantic model | The star schema everything else reads, with described measures and AI instructions |
+| `ContosoCoffee` report | Copilot-built pages, hardened and given verified answers |
+| `Contoso Coffee Analyst` | Fabric data agent over that same semantic model, and nothing else |
+| `ContosoCoffee` ontology | Optional Fabric IQ knowledge graph over the same tables |
+| `EH_AgentEval`, `SQLDB_AgentEval` | Where the accuracy loop keeps its runs, defects and approvals |
+| `agent_eval`, `agent_remediate` | Notebooks that ask the questions, and apply an approved fix |
+| `Agent Accuracy` dashboard, `AgentEvals` report | The score, the failures, and the queue of fixes awaiting a human |
+
+![The Contoso Coffee AI Demo workspace listing its items: the Agent Accuracy dashboard and alerts, the eval and remediation notebooks, the AgentEvals report and model, the approval function, the data agent, the ContosoCoffee report, model, ontology and lakehouse](docs/images/workspace-items.png)
+
+Three of those are what you actually show people. The report is what a business user opens:
+
+![The Executive Sales & Margin Overview page in the Power BI service, with four report pages listed on the left, Region and Year slicers, five KPI cards, trend charts and an AI-generated narrative](docs/images/05-report-in-service.png)
+
+The data agent is the same model with a chat box in front of it:
+
+![The Contoso Coffee Analyst data agent in Fabric, with the ContosoCoffee semantic model and its Date, Product, Sales and Store tables selected, and a test chat canvas](docs/images/07-data-agent-test.png)
+
+And the dashboard is what keeps everyone honest, because it scores the answers:
+
+![The Agent Accuracy real-time dashboard, showing score over time, the latest run, instability, alerts raised, and a remediation queue of proposed instruction changes awaiting approval](docs/images/08-agent-accuracy-dashboard.png)
+
 ---
 
 ## The nine phases, plus one gate

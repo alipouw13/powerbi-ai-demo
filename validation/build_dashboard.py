@@ -19,6 +19,12 @@ Schema notes, learned by getting them wrong:
 * Every id must be a real RFC 4122 UUID. Readable strings with dashes in them,
   like "ds-agent-eval", are rejected at load time.
 
+Getting those wrong tends to leave stray dashboards behind, because the fastest
+way to find the version the client wants is to create an empty one by hand and
+read the error. `Agent Accuracy` is the only KQL dashboard this repo owns. An
+empty dashboard with no data sources, queries or tiles is a leftover probe, not
+part of the demo, and should be deleted from the workspace.
+
 Ids are generated with uuid5 from a fixed namespace so that re-running this
 script produces the same dashboard rather than a new one, which is what keeps
 pinned references and share targets intact.
