@@ -7,6 +7,7 @@ Standard library only. Run with:
 
 from __future__ import annotations
 
+import copy
 import sys
 import unittest
 from pathlib import Path
@@ -559,6 +560,150 @@ class TestInstructionMerge(unittest.TestCase):
         merged, changed = eh.merge_instruction("", self.LINE)
         self.assertTrue(changed)
         self.assertIn(self.LINE, merged)
+
+
+class TestNothingIsEverRemoved(unittest.TestCase):
+    """The guards that stand between a remediation and a wiped model.
+
+    Applying an approved sentence means writing the whole model back, because
+    the sentence is one property on it. Two things can go wrong that look
+    identical to a successful run:
+
+    * the text that was read is not the text being overwritten, so a page of
+      hand-written AI instructions is replaced by one approved line, and
+    * the payload is missing objects the model has, so TMSL deletes them,
+
+    and in both cases the instruction reads back exactly as sent. These are
+    the checks that tell those apart from a real remediation.
+    """
+
+    LINE = "When a question does not state a time period, use all available data."
+
+    def model(self, *, tables=2, measures=3, entities=4, extra=None):
+        model = {
+            "tables": [
+                {
+                    "name": f"T{index}",
+                    "columns": [{"name": "c"}],
+                    "measures": [{"name": f"m{n}"} for n in range(measures)],
+                    "partitions": [{"name": "p"}],
+                }
+                for index in range(tables)
+            ],
+            "relationships": [{"name": "r"}],
+            "roles": [{"name": "Readers"}],
+            "cultures": [{
+                "name": "en-US",
+                "linguisticMetadata": {"content": {
+                    "Version": "4.2.0",
+                    "Entities": {f"e{n}": {} for n in range(entities)},
+                    "Relationships": {"rel": {}},
+                    "CustomInstructions": "Existing guidance.",
+                }},
+            }],
+        }
+        model.update(extra or {})
+        return {"model": model}
+
+    # -- append only ------------------------------------------------------
+
+    def test_a_merged_instruction_passes(self) -> None:
+        current = "Existing guidance."
+        proposed, _ = eh.merge_instruction(current, self.LINE)
+        eh.assert_append_only(current, proposed)
+
+    def test_a_trailing_newline_is_not_a_removal(self) -> None:
+        # merge_instruction rstrips before appending, so the proposed text
+        # does not start with the raw current string when that string ended
+        # in whitespace. That is normalisation, not deletion, and a naive
+        # startswith check would refuse every second remediation.
+        current = "Existing guidance.   \n\t "
+        proposed, changed = eh.merge_instruction(current, self.LINE)
+        self.assertTrue(changed)
+        self.assertFalse(proposed.startswith(current))
+        eh.assert_append_only(current, proposed)
+
+    def test_replacing_the_instructions_is_refused(self) -> None:
+        # The failure this exists for: a short read, then a write that
+        # replaces a page of instructions with one approved sentence.
+        current = "A page of hand-written guidance.\n" * 40
+        proposed, _ = eh.merge_instruction("", self.LINE)
+        with self.assertRaises(ValueError) as caught:
+            eh.assert_append_only(current, proposed)
+        self.assertIn("do not contain the current ones", str(caught.exception))
+
+    def test_truncating_the_instructions_is_refused(self) -> None:
+        current = "Line one.\nLine two.\nLine three."
+        with self.assertRaises(ValueError):
+            eh.assert_append_only(current, "Line one.\nLine two.")
+
+    def test_writing_nothing_over_something_is_refused(self) -> None:
+        with self.assertRaises(ValueError):
+            eh.assert_append_only("Existing guidance.", "")
+
+    def test_an_empty_model_can_still_be_written_to(self) -> None:
+        proposed, _ = eh.merge_instruction("", self.LINE)
+        eh.assert_append_only("", proposed)
+
+    # -- census -----------------------------------------------------------
+
+    def test_the_census_counts_what_must_survive(self) -> None:
+        census = eh.model_census(self.model())
+        self.assertEqual(census["tables"], 2)
+        self.assertEqual(census["measures"], 6)
+        self.assertEqual(census["relationships"], 1)
+        self.assertEqual(census["roles"], 1)
+        self.assertEqual(census["cultures"], 1)
+        self.assertEqual(census["linguistic_entities"], 4)
+        self.assertIn("CustomInstructions", census["linguistic_keys"])
+
+    def test_the_census_ignores_the_instruction_text(self) -> None:
+        # Otherwise every remediation would look like a change to the model,
+        # and the check would have to be disabled to get any work done.
+        before = self.model()
+        after = copy.deepcopy(before)
+        blob = after["model"]["cultures"][0]["linguisticMetadata"]["content"]
+        blob["CustomInstructions"] += "\n\nAn approved line."
+        self.assertEqual(eh.model_census(before), eh.model_census(after))
+
+    def test_the_census_survives_a_model_with_nothing_in_it(self) -> None:
+        census = eh.model_census({})
+        self.assertEqual(census["tables"], 0)
+        self.assertEqual(census["linguistic_keys"], [])
+
+    # -- losses -----------------------------------------------------------
+
+    def test_an_unchanged_model_has_no_losses(self) -> None:
+        before = eh.model_census(self.model())
+        self.assertEqual(eh.census_losses(before, dict(before)), {})
+
+    def test_a_lost_table_is_a_loss(self) -> None:
+        before = eh.model_census(self.model(tables=4))
+        after = eh.model_census(self.model(tables=3))
+        losses = eh.census_losses(before, after)
+        self.assertIn("tables", losses)
+        self.assertEqual(losses["tables"], (4, 3))
+
+    def test_lost_synonyms_are_a_loss(self) -> None:
+        # Q&A terms are the part of AI readiness that no count of tables would
+        # notice going missing, which is exactly why they are counted.
+        before = eh.model_census(self.model(entities=40))
+        after = eh.model_census(self.model(entities=0))
+        self.assertIn("linguistic_entities", eh.census_losses(before, after))
+
+    def test_a_dropped_linguistic_key_is_a_loss(self) -> None:
+        before = self.model()
+        after = copy.deepcopy(before)
+        del after["model"]["cultures"][0]["linguisticMetadata"]["content"]["Entities"]
+        losses = eh.census_losses(eh.model_census(before), eh.model_census(after))
+        self.assertIn("linguistic_keys", losses)
+
+    def test_growth_is_not_a_loss(self) -> None:
+        # Somebody else adding a measure is the concurrency guard's problem,
+        # not this one's. Flagging it here would stop legitimate runs.
+        before = eh.model_census(self.model(measures=2))
+        after = eh.model_census(self.model(measures=5))
+        self.assertEqual(eh.census_losses(before, after), {})
 
 
 class TestEscalationWhenTheFixWasAlreadyTried(unittest.TestCase):

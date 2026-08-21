@@ -958,6 +958,106 @@ def merge_instruction(existing: str, instruction: str) -> tuple[str, bool]:
     ), True
 
 
+def assert_append_only(current: str, proposed: str) -> None:
+    """Raise unless every character of `current` survives into `proposed`.
+
+    `merge_instruction` only ever appends, so on paper this can never fire.
+    It is here because of what happens when it does, and because of how the
+    text is written back.
+
+    The instructions are one string on one property of one culture, and the
+    notebook rewrites the model to change it. If the read ever came back
+    short -- a different culture, a truncated payload, a model that answered
+    with an empty string because the caller could not see it -- then the
+    write would replace a page of hand-written AI instructions with one
+    approved sentence. It would then read that sentence back, match what it
+    sent, and report a successful remediation. Nobody would find out until
+    somebody opened Prep data for AI and found their instructions gone.
+
+    Comparing against `rstrip()` rather than the raw string because merging
+    normalises the trailing newline, which is not a removal.
+    """
+    kept = (current or "").rstrip()
+    if (proposed or "").startswith(kept):
+        return
+    raise ValueError(
+        "refusing to write: the new instructions do not contain the current "
+        "ones.\n"
+        "\n"
+        f"currently in the model : {len(current or '')} chars\n"
+        f"about to be written    : {len(proposed or '')} chars\n"
+        "\n"
+        "Remediation only ever appends, so this means the text that was read "
+        "is not the text that is about to be overwritten. Writing now would "
+        "delete instructions a person wrote. Nothing was written."
+    )
+
+
+def model_census(script: dict) -> dict:
+    """Count everything a remediation is supposed to leave alone.
+
+    The instruction lives on the model, so the model is what gets written
+    back, and TMSL is explicit that "omission of a read-write object is
+    considered a deletion". A snapshot that lost a table on the way in takes
+    that table with it.
+
+    The only check that used to run after the write was whether the
+    instruction string read back. It does read back, in every one of those
+    cases, because the string is the one thing that was sent correctly. This
+    counts the rest, so the difference between "the instruction landed" and
+    "the model survived" is two separate answers.
+    """
+    model = script.get("model") or {}
+    tables = model.get("tables") or []
+    cultures = model.get("cultures") or []
+    blob = {}
+    if cultures:
+        blob = (cultures[0].get("linguisticMetadata") or {}).get("content") or {}
+
+    return {
+        "tables": len(tables),
+        "columns": sum(len(t.get("columns") or []) for t in tables),
+        "measures": sum(len(t.get("measures") or []) for t in tables),
+        "hierarchies": sum(len(t.get("hierarchies") or []) for t in tables),
+        "partitions": sum(len(t.get("partitions") or []) for t in tables),
+        "relationships": len(model.get("relationships") or []),
+        "roles": len(model.get("roles") or []),
+        "perspectives": len(model.get("perspectives") or []),
+        "expressions": len(model.get("expressions") or []),
+        "cultures": len(cultures),
+        # Siblings of CustomInstructions on the same property. Entities and
+        # Relationships are the synonyms and phrasings that Q&A and Copilot
+        # read, so losing them is a real loss of AI readiness that no count of
+        # tables would show.
+        "linguistic_keys": sorted(blob),
+        "linguistic_entities": len(blob.get("Entities") or {}),
+        "linguistic_relationships": len(blob.get("Relationships") or {}),
+    }
+
+
+def census_losses(before: dict, after: dict) -> dict:
+    """What the census says went missing, as {name: (before, after)}.
+
+    Only losses. A model that gained a measure while this ran is somebody
+    else's change and is caught by the concurrency guard instead; a model
+    that lost one is this run's fault and has to stop the run.
+    """
+    losses: dict = {}
+    for key, was in before.items():
+        now = after.get(key)
+        if now == was:
+            continue
+        if isinstance(was, list):
+            if [item for item in was if item not in (now or [])]:
+                losses[key] = (was, now)
+        elif isinstance(was, int) and isinstance(now, int):
+            if now < was:
+                losses[key] = (was, now)
+        else:
+            losses[key] = (was, now)
+    return losses
+
+
 # --------------------------------------------------------------------------
 # Alert conditions
 # --------------------------------------------------------------------------

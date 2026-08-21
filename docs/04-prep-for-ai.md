@@ -156,6 +156,64 @@ AI instructions cover exactly those cases.
 
 ---
 
+## If the AI instructions box looks empty
+
+The pane is a **view over one property of the semantic model**. It is not a store of its
+own, and there is no second copy anywhere:
+
+```
+ContosoCoffee > model > cultures['en-US']
+  > linguisticMetadata > content > CustomInstructions
+```
+
+So an empty box has two very different causes, and they need telling apart before anyone
+starts retyping a page of instructions:
+
+1. **The text really is gone.** Something wrote the model and left it out.
+2. **The pane did not load it.** The property is a single string inside a blob that also
+   holds every Q&A synonym in the model — a quarter of a megabyte on this one — and the
+   box renders empty while that is still in flight or if the fetch fails.
+
+**Check the property, not the pane.** Either run `agent_remediate` with `DRY_RUN = True`,
+which prints the path, the character count and the last three lines before it writes
+anything, or read it straight out of the item definition:
+
+```
+POST /v1/workspaces/{workspace}/items/{semanticModel}/getDefinition
+```
+
+and look at `definition/cultures/en-US.tmdl`. If `CustomInstructions` is there with the
+length you expect, the instructions are fine and the pane is the problem. Reload the model
+and reopen `Prep data for AI`.
+
+**If it really is gone,** every remediation writes the whole model to
+`Files/model_backups/<model>_<stamp>.tmsl.json` immediately *before* it changes anything.
+Restore the newest one. Do not approve anything first: a remediation applied to empty
+instructions appends its sentence to nothing and gives you a one-line model.
+
+### Why remediation cannot be the cause
+
+Changing that one string means writing the whole model back with `createOrReplace`, and
+TMSL is explicit that [omission of a read-write object is considered a
+deletion](https://learn.microsoft.com/analysis-services/tmsl/createorreplace-command-tmsl).
+That is a real hazard and it is guarded in three places, each of which stops the run:
+
+| Guard | Refuses |
+| --- | --- |
+| Append-only check, during the diff | New text that does not contain the current text. A short read cannot replace a page of instructions with one approved sentence. |
+| Payload census, before the write | A payload holding fewer tables, columns, measures, relationships, roles or Q&A terms than the model does. `createOrReplace` would delete the difference. |
+| Result census, after the write | A model that came back smaller than it went in. |
+
+The last one matters most and is the least obvious. In every case where objects are lost,
+the instruction string still reads back exactly as sent, because it is the one thing that
+was transmitted correctly. Reading it back is not evidence that the model survived, so the
+run counts what is left as well.
+
+All three are covered by [`validation/test_model_instructions.py`](../validation/test_model_instructions.py),
+which runs the real notebook cells against a double that applies TMSL's deletion rule.
+
+---
+
 ## A caveat to say out loud
 
 AI behaviour is nondeterministic. The same prompt can return different wording, and

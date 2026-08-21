@@ -124,7 +124,12 @@ def build_cells() -> list[dict]:
         "The model's AI instructions live in the semantic model at\n"
         "`model.cultures[en-US].linguisticMetadata.content.CustomInstructions`, which\n"
         "is what Prep data for AI (preview) writes. Reached over XMLA with sempy,\n"
-        "because `getDefinition` is blocked for this item."
+        "because `getDefinition` is blocked for this item.\n"
+        "\n"
+        "That pane is a view over this one property. It is not a store of its own,\n"
+        "and there is no second copy anywhere. So this cell prints the path, the\n"
+        "length and the last few lines: if the pane ever looks empty, the output\n"
+        "here is the answer, and it does not depend on the pane loading."
     ))
     cells.append(code(READ_CELL))
 
@@ -141,7 +146,21 @@ def build_cells() -> list[dict]:
         "\n"
         "The backup is written before the change, not after, and it is the full\n"
         "model script rather than just the instructions. Restoring one property is\n"
-        "not much use if the round trip damaged something else."
+        "not much use if the round trip damaged something else.\n"
+        "\n"
+        "Changing one string means writing the whole model back, and TMSL is\n"
+        "explicit that an omitted object is a deleted object. So there are three\n"
+        "checks, not one:\n"
+        "\n"
+        "1. **Before the write**, the payload is counted against a fresh read of\n"
+        "   the server. A payload with fewer tables, measures, roles or Q&A terms\n"
+        "   than the model has would delete the difference, so it is refused.\n"
+        "2. **After the write**, the instruction is read back and `lastUpdate` is\n"
+        "   checked, because a read back can be served from this session's own\n"
+        "   copy and show a value that never reached the server.\n"
+        "3. **After the write**, the census is compared again. The instruction\n"
+        "   reads back perfectly in exactly the case that matters, so counting\n"
+        "   what is left is the only check that can tell the two apart."
     ))
     cells.append(code(APPLY_CELL))
 
@@ -366,6 +385,32 @@ print(f"culture           : {culture['name']}")
 print(f"current length    : {len(current)} chars")
 print(f"already remediated: {REMEDIATION_HEADING in current}")
 print(f"lastUpdate before : {last_update_before}")
+
+# Everything this run must leave exactly as it found it. Compared again after
+# the write, because "the instruction read back" is not the same claim as
+# "the model survived", and only the first of those was ever checked.
+before_census = model_census(model_script)
+print(f"census before     : {before_census}")
+
+# Where the text actually is, spelled out. Prep data for AI (preview) is a
+# pane over this one property, not a store of its own. When that pane comes
+# up empty the first question is always whether a remediation deleted the
+# instructions, and the only way to answer it without the pane is to know the
+# path and read it. This run has just read it, so the answer is above.
+print()
+print("Prep data for AI (preview) shows this property and nothing else:")
+print(f"  {SEMANTIC_MODEL_NAME} > model > cultures['{culture['name']}']")
+print("    > linguisticMetadata > content > CustomInstructions")
+print()
+lines = [line for line in current.splitlines() if line.strip()]
+if lines:
+    print(f"It holds {len(lines)} non-empty line(s). The last three:")
+    for line in lines[-3:]:
+        print(f"  {line[:110]}")
+else:
+    print("It is empty. If it should not be, restore the newest file under")
+    print("Files/model_backups before approving anything else: a remediation")
+    print("applied now would append its sentence to nothing.")
 '''
 
 
@@ -391,6 +436,12 @@ for row in pending:
 print()
 print(f"length {len(current)} -> {len(proposed)}  ({len(applied_now)} line(s) to add, "
       f"{len(already_present)} already satisfied)")
+
+# Remediation appends and never rewrites, so this holds by construction and is
+# checked anyway. It is checked here rather than in the cell that writes so a
+# dry run proves it too, and so the run stops before it has taken a backup of
+# a model it was about to damage.
+assert_append_only(current, proposed)
 
 if applied_now:
     print()
@@ -443,10 +494,28 @@ else:
             "Re-run this notebook; the approval is still open."
         )
 
+    # Completeness, which the concurrency guard does not cover. `guard` is an
+    # independent read of what the server holds right now; `model_script` is
+    # the payload about to replace it. TMSL deletes whatever the payload
+    # omits, so if the payload is the smaller of the two then sending it
+    # destroys the difference. Refusing here costs one comparison and is the
+    # difference between a failed remediation and a restore from backup.
+    missing = census_losses(model_census(guard), model_census(model_script))
+    if missing:
+        raise RuntimeError(
+            "refusing to write: the payload is missing objects the model "
+            "still has.\\n\\n"
+            + "\\n".join(f"  {name}: model has {was}, payload has {now}"
+                         for name, (was, now) in sorted(missing.items()))
+            + "\\n\\n"
+            "createOrReplace deletes anything the payload leaves out, so this "
+            "write would remove them. Nothing was written."
+        )
+
     fabric.execute_tmsl(script=json.dumps(script), workspace=WORKSPACE_ID)
     print("execute_tmsl returned without error")
 
-    # Two checks, because the first one on its own is not evidence.
+    # Three checks, because none of the first two on its own is evidence.
     #
     # A content read back can be served from the session's own copy of the
     # model and will show the value we just set even if nothing reached the
@@ -482,7 +551,28 @@ else:
             "access, or run this notebook interactively as someone who has it. "
             "Do not treat this run as a successful remediation."
         )
-    print(f"persisted: {len(after)} chars, {len(verify['model']['tables'])} tables intact")
+
+    # The third check, and the one that would have caught the worst failure
+    # this notebook can cause. Writing the instruction means writing the whole
+    # model, and TMSL treats an omitted object as a deletion, so a bad
+    # snapshot removes tables, measures or Q&A synonyms while sending the
+    # instruction perfectly. Both checks above pass in that case. This one
+    # does not.
+    after_census = model_census(verify)
+    losses = census_losses(before_census, after_census)
+    if losses:
+        raise RuntimeError(
+            "the instruction was written but the model lost objects doing "
+            "it.\\n\\n"
+            + "\\n".join(f"  {name}: {was} -> {now}"
+                         for name, (was, now) in sorted(losses.items()))
+            + "\\n\\n"
+            f"Restore {backup_path} now. It was taken immediately before this "
+            "write and contains the whole model, not just the instructions."
+        )
+
+    print(f"persisted: {len(after)} chars, nothing lost")
+    print(f"census after      : {after_census}")
 '''
 
 
