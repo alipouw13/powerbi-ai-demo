@@ -35,6 +35,7 @@ tenant identifiers:
 | `FABRIC_SEMANTIC_MODEL_NAME` | `ContosoCoffee` |
 | `FABRIC_AGENTEVALS_MODEL_NAME` | `AgentEvals` |
 | `FABRIC_AGENTEVALS_REPORT_NAME` | `AgentEvals` |
+| `FABRIC_DATA_AGENT_NAME` | `Contoso Coffee Analyst` |
 | `FABRIC_SQL_ALIAS` | `agentevalsql` |
 
 Set them once per shell:
@@ -76,6 +77,13 @@ AGENTEVALS_MODEL_NAME = os.environ.get(
 ).strip()
 AGENTEVALS_REPORT_NAME = os.environ.get(
     "FABRIC_AGENTEVALS_REPORT_NAME", "AgentEvals"
+).strip()
+
+# The data agent's display name, which is not the same thing as its id.
+# `agent_remediate` resolves the agent by name when it hands off, so a wrong
+# value here fails at handoff time rather than at deploy time.
+DATA_AGENT_NAME = os.environ.get(
+    "FABRIC_DATA_AGENT_NAME", "Contoso Coffee Analyst"
 ).strip()
 
 # The alias of the managed connection the approval function reads through.
