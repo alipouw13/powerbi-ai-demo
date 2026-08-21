@@ -246,13 +246,14 @@ approvals(
   approver_oid     varchar(64) not null,
   source           varchar(16) not null,        -- 'report' | 'card' | 'cli'
   note             nvarchar(max),
+  covered_by       uniqueidentifier null,       -- the approval that carries the change
   mirrored_ts      datetime2 null               -- set by the pipeline
 )
 
 remediations(
   remediation_id   uniqueidentifier primary key,
   recorded_ts      datetime2 not null,
-  applied_ts       datetime2 null,
+  applied_ts       datetime2 null,              -- null means nothing was written
   approval_id      uniqueidentifier not null references approvals(approval_id),
   question_id      varchar(8) not null references questions(question_id),
   instruction      nvarchar(max) not null,
@@ -263,13 +264,20 @@ remediations(
 )
 ```
 
-Two things carried over deliberately:
+Three things carried over deliberately:
 
 - **`approvals.proposed_instruction` is still a copy.** A foreign key to
   `defects` would be tidier and would mean the applied text could change after
   it was approved. A person approves a sentence.
 - **"Open" is still derived**, now as a `left join ... where r.approval_id is
   null` instead of a Kusto anti-join. Same rule, one definition, in a view:
+- **`applied_ts` is still nullable, and now that null means something.**
+  `persisted` with a time is "this run wrote it". `persisted` with no time is
+  "this approval is satisfied and nothing was written", either because the
+  sentence was already there or because another approval carries it. Adding a
+  status column instead would have meant migrating an append-only eventhouse
+  table that four writers share, to record something the schema could already
+  express.
 
 ```sql
 create view open_approvals as
@@ -338,6 +346,77 @@ loses one of them is worse than what exists today.
    own score.
 5. **Tier 2 is refused, not approximated.**
 6. **The instrument is versioned.** Every run records `bank_sha`.
+7. **Applied means applied.** A remediation is only recorded as a change when
+   the text can be read back from the thing that was supposed to change: the
+   server-side `lastUpdate` for a semantic model, the **published**
+   configuration for a data agent. Anything else lets the report show a fix
+   that never happened, which is worse than showing none.
+
+### 3.5 One sentence, several questions
+
+The harness proposes from a small library, so one wrong behaviour usually
+appears as the same sentence against four or five questions at once. They are
+one decision, and the model or the agent should get one line.
+
+`approve_similar` records the decision for every question in the group. The
+extra rows carry `covered_by`, naming the approval that makes the change, and
+each one gets a remediation row with `persisted = 1` and **no** `applied_ts`.
+That closes the approval, so nothing queues a second identical write, while
+keeping a real decision against every question.
+
+`applied_ts` is doing real work here and it is worth being explicit about it.
+`persisted` with a time means "this run wrote the sentence". `persisted` with
+no time means "this approval is satisfied and nothing was written", which
+happens two ways: the sentence was already there, or another approval carries
+it. Both are correct outcomes and neither is a fix, so the report counts them
+as `Already Present` rather than as `Instructions Written`.
+
+The mirror gained a third leg for this. Approvals go SQL to eventhouse and
+remediations come back, but these closing rows are written in SQL by the
+function and have to reach the eventhouse too, or the leftanti join the
+remediation notebook uses to find open work would treat all four questions as
+outstanding. They are copied out **before** the approvals leg, so a covered
+approval can never reach the eventhouse ahead of the row that closes it.
+
+### 3.6 Staging is not the agent
+
+An instruction applied to a data agent goes to its **staging** configuration.
+Staging is a draft. The MCP endpoint answers from the published configuration,
+and so does anybody looking at the agent, and staging only becomes published
+when something calls the publish endpoint.
+
+The first version of the agent path did not, and mixed two APIs while it was
+at it: the write PATCHes `aiInstructions` on staging through the public API,
+while the deprecated `get_configuration` reads `additionalInstructions`
+from the workload host. So the notebook wrote a draft, read a different field
+back, decided the write had not landed, and raised. Its caller caught the
+exception and printed one line among fifty.
+
+Two approvals sat applied-but-absent for days, and every surface said the loop
+was healthy. The fixes are in three places, and all three matter:
+
+* the agent path uses one plane end to end and publishes,
+* it verifies against the **published** configuration before recording
+  anything,
+* a failed handoff is printed as a banner rather than a line, because a quiet
+  failure here is indistinguishable from success.
+
+The four calls, all on `/v1/workspaces/{ws}/dataAgents/{id}`:
+
+| Step | Call |
+| --- | --- |
+| Read the draft | `GET /staging/settings` |
+| Write the draft | `PATCH /staging/settings` with `{"aiInstructions": ...}` |
+| Publish it | `POST /staging/publish` with `{"publishedDescription": ...}` |
+| Verify | `GET /settings` |
+
+`publishedDescription`, not `description`. The endpoint accepts both and
+silently ignores the latter, so a publish can look recorded and carry no note.
+
+There is deliberately no SDK here. `fabric-data-agent-sdk` makes these same
+calls, and installing it at run time cancelled the notebook's Spark session in
+ten seconds on the first agent-targeted approval that ever reached it, before
+a line of its own code ran.
 
 ---
 

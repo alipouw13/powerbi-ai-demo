@@ -504,6 +504,11 @@ def page_one() -> list[dict]:
                          (column("Answers", "Question Outcome"),
                           "Answers", "Question Outcome"),
                          (column("Answers", "Grade"), "Answers", "Grade"),
+                         # Prunes the cross join, and earns its place: a
+                         # question answered the same way five times reads
+                         # very differently from one that did it once.
+                         (measure("Answers", "Attempts"),
+                          "Answers", "Attempts"),
                          (column("Answers", "Answer Text"),
                           "Answers", "Answer Text"),
                      ]),
@@ -516,6 +521,11 @@ def page_one() -> list[dict]:
                           "Questions", "Question ID"),
                          (column("Defects", "Defect Outcome"),
                           "Defects", "Defect Outcome"),
+                         # Prunes the cross join. Also the honest count of how
+                         # many runs have found this, which is the difference
+                         # between a one-off and a standing problem.
+                         (measure("Defects", "Defects Found"),
+                          "Defects", "Defects Found"),
                          (column("Defects", "Proposed Instruction"),
                           "Defects", "Proposed Instruction"),
                      ]),
@@ -563,6 +573,15 @@ def page_two() -> list[dict]:
         # The queue. Selecting a row here is what puts one question in filter
         # context, which is what [Selected Question ID] reads and the approval
         # button passes to the user data function.
+        #
+        # [Writes To] is load bearing beyond the text it shows. A table of
+        # columns drawn from two tables is a cross join: Power BI only keeps
+        # the combinations that exist once a measure prunes the rest, and with
+        # columns alone this visual listed every question against every
+        # outcome and tier, including questions that had never failed and a
+        # blank question id. The measure is blank for anything not in the
+        # decision queue, so it both explains the fix and decides which rows
+        # are real. Removing it brings the phantom rows back.
         table_visual(P2, "queue", "Proposed fixes awaiting a decision",
                      40, ROW2_Y - 16, 780, 206, columns=[
                          (column("Questions", "Question ID"),
@@ -572,6 +591,13 @@ def page_two() -> list[dict]:
                          (column("Defects", "Defect Outcome"),
                           "Defects", "Defect Outcome"),
                          (column("Defects", "Fix Tier"), "Defects", "Fix Tier"),
+                         # Ahead of the instruction rather than after it,
+                         # because the instruction is wide enough to push
+                         # anything behind it out of view, and where a change
+                         # lands is part of the decision, not a detail to go
+                         # looking for afterwards.
+                         (measure("Defects", "Writes To"),
+                          "Defects", "Writes To"),
                          (column("Defects", "Proposed Instruction"),
                           "Defects", "Proposed Instruction"),
                      ]),
@@ -584,6 +610,10 @@ def page_two() -> list[dict]:
                           "Questions", "Question ID"),
                          (column("Approvals", "Decision"),
                           "Approvals", "Decision"),
+                         # Prunes the cross join, and a question decided twice
+                         # is worth seeing rather than hiding.
+                         (measure("Approvals", "Decisions Made"),
+                          "Approvals", "Decisions Made"),
                          (column("Approvals", "Decided By"),
                           "Approvals", "Decided By"),
                          (column("Approvals", "Decision Note"),
@@ -613,12 +643,99 @@ def page_two() -> list[dict]:
 
 
 # --------------------------------------------------------------------------
+# Page three: the same fix, proposed for several questions
+# --------------------------------------------------------------------------
+#
+# The harness proposes from a small library, so one wrong behaviour usually
+# appears as the same sentence against four or five questions at once.
+# Approving them one at a time on page two is five clicks that all mean the
+# same thing, and four of the five would queue a write that changes nothing
+# because the first one already added the line.
+#
+# This page exists so that a person can see the group before deciding, and
+# record the decision once. It is a separate page rather than a panel on page
+# two because the two buttons take the same parameters and sitting them next
+# to each other is how somebody approves a group when they meant to approve
+# one question.
+
+P3 = "similar"
+P3_NAME = vid("page/similar")
+
+SIMILAR_NOTE = (
+    "Approve one question on the previous page first. That approval is what "
+    "changes the model or the agent. This records the same decision for every "
+    "other question the harness proposed the identical sentence for, marking "
+    "them approved and covered by it, so the sentence is written once rather "
+    "than once per question. Choosing not to approve them is a valid answer: "
+    "they stay in the queue and can be decided separately."
+)
+
+
+def page_three() -> list[dict]:
+    return [
+        header_band(P3),
+        header_title(P3, "Same Fix, Several Questions"),
+        slicer(P3, "question", "Questions", "Question ID", 800),
+        slicer(P3, "target", "Defects", "Instruction Target", 1028),
+
+        kpi_card(P3, "sharing", "Defects", "Questions Sharing This Fix",
+                 "Questions sharing this fix", INFO, CARD_X[0]),
+        kpi_card(P3, "await", "Approvals", "Awaiting Apply",
+                 "Awaiting apply", WARN, CARD_X[1]),
+        kpi_card(P3, "covered", "Approvals", "Covered By Another Approval",
+                 "Covered by another", NEUTRAL, CARD_X[2]),
+        kpi_card(P3, "written", "Remediations", "Instructions Written",
+                 "Instructions written", GOOD, CARD_X[3]),
+        kpi_card(P3, "present", "Remediations", "Already Present",
+                 "Already present", NEUTRAL, CARD_X[4]),
+
+        # The group. Sorted by the sentence rather than by question, because
+        # the sentence is what makes these one decision.
+        table_visual(P3, "group", "Questions proposing the same sentence",
+                     40, ROW2_Y - 16, 1200, 206, columns=[
+                         (column("Defects", "Proposed Instruction"),
+                          "Defects", "Proposed Instruction"),
+                         (column("Questions", "Question ID"),
+                          "Questions", "Question ID"),
+                         (column("Defects", "Instruction Target"),
+                          "Defects", "Instruction Target"),
+                         (measure("Defects", "Questions Sharing This Fix"),
+                          "Defects", "Questions Sharing This Fix"),
+                     ]),
+
+        input_slicer(P3, "decision", "Decision (approved or rejected)",
+                     40, ACTION_Y, 370, 84),
+        input_slicer(P3, "note", "Note for the record",
+                     426, ACTION_Y, 394, 84),
+        note_box(P3, "submit", "Then approve the rest of the group:",
+                 40, 548, 220, 28),
+        action_button(P3, "submit", "Approve similar", 40, 578, 200, 44),
+        note_box(P3, "guardrail", SIMILAR_NOTE, 260, 556, 560, 110),
+
+        table_visual(P3, "decided", "What has already been decided",
+                     836, ACTION_Y, 404, ACTION_H, columns=[
+                         (column("Questions", "Question ID"),
+                          "Questions", "Question ID"),
+                         (column("Approvals", "Decision"),
+                          "Approvals", "Decision"),
+                         # Prunes the cross join. See the queue table on page
+                         # two for why a table of columns alone cannot.
+                         (measure("Approvals", "Decisions Made"),
+                          "Approvals", "Decisions Made"),
+                         (column("Approvals", "Decided By"),
+                          "Approvals", "Decided By"),
+                     ]),
+    ]
+
+
+# --------------------------------------------------------------------------
 # Assembly
 # --------------------------------------------------------------------------
 
 PAGES = [
     (P1_NAME, "Agent Answer Quality", page_one),
     (P2_NAME, "Review & Approve Fixes", page_two),
+    (P3_NAME, "Same Fix, Several Questions", page_three),
 ]
 
 
@@ -818,13 +935,19 @@ def carry_over_button_action(parts: dict[str, str],
     The binding lives under `visualContainerObjects`, not `objects`, which is
     where the first version of this function looked. It found nothing, said
     nothing, and the rebuild deleted a working binding.
+
+    Every bound button is carried, not the first one found. There are two now,
+    one per writeback function, and a version that stopped at the first would
+    keep the approval binding and quietly drop the bulk approval one, which is
+    the same failure this function exists to prevent.
     """
     # Both containers are searched because being wrong about which one costs
     # somebody their configuration, and looking in two places costs nothing.
     containers = ("visualContainerObjects", "objects")
 
-    bound = None
-    source = ""
+    generated = {json.loads(text)["name"] for path, text in parts.items()
+                 if path.endswith("visual.json")}
+
     for path, text in deployed.items():
         if not path.endswith("visual.json"):
             continue
@@ -832,15 +955,19 @@ def carry_over_button_action(parts: dict[str, str],
         visual_body = payload.get("visual", {})
         if visual_body.get("visualType") != "actionButton":
             continue
-        for container in containers:
-            if "visualLink" in visual_body.get(container, {}):
-                bound, source = payload, container
-                break
-        if bound:
-            break
-    if bound is None:
-        return
+        source = next(
+            (container for container in containers
+             if "visualLink" in visual_body.get(container, {})),
+            "",
+        )
+        if not source:
+            continue
+        _carry_one(parts, payload, source, generated)
 
+
+def _carry_one(parts: dict[str, str], bound: dict, source: str,
+               generated: set[str]) -> None:
+    """Copy one deployed button's binding onto the button this build made."""
     target = next(
         (path for path, text in parts.items()
          if path.endswith("visual.json")
@@ -858,8 +985,6 @@ def carry_over_button_action(parts: dict[str, str],
     # The binding names the slicers it reads by visual id. If a rebuild
     # renamed or removed one, carrying the binding over would leave a button
     # wired to a visual that is not there.
-    generated = {json.loads(text)["name"] for path, text in parts.items()
-                 if path.endswith("visual.json")}
     referenced = {
         parameter.get("slicer")
         for block in link

@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import build_sql_schema as schema  # noqa: E402
 from config import SQL_CONNECTION_STRING, require  # noqa: E402
 from publish_question_bank import bank_sha, build_merge  # noqa: E402
 
@@ -130,11 +131,12 @@ def run(cursor, label: str, script: str) -> None:
 
 
 def verify(cursor) -> int:
-    expected_tables = {
-        "questions", "runs", "answers", "defects",
-        "feedback", "approvals", "remediations",
-    }
-    expected_views = {"open_approvals", "remediation_queue"}
+    # Derived from the builder rather than listed here. A hardcoded list is a
+    # second place to remember, and the one time it was forgotten this
+    # function reported "schema is current" for a database that was missing a
+    # view the report reads.
+    expected_tables = {name for name, _ in schema.TABLES}
+    expected_views = {name for name, _ in schema.VIEWS}
 
     cursor.execute(
         "SELECT TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES "
@@ -153,6 +155,24 @@ def verify(cursor) -> int:
         print(f"\nMISSING: {', '.join(sorted(missing))}")
         return 1
 
+    # Columns added after the first deployment. The CREATE TABLE statements
+    # are guarded on the table not existing, so they are silently skipped on a
+    # database that already has it, and a missing column would otherwise only
+    # show up as a failed writeback in front of whoever pressed the button.
+    absent = []
+    for table, column, _ in schema.MIGRATIONS:
+        cursor.execute(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+            table, column,
+        )
+        if not cursor.fetchone()[0]:
+            absent.append(f"{table}.{column}")
+    if absent:
+        print(f"\nMISSING COLUMN(S): {', '.join(absent)}")
+        print("Re-run without --check to apply them.")
+        return 1
+
     cursor.execute(
         "SELECT COUNT(*), MIN(bank_sha), SUM(CASE WHEN kind = 'probe' THEN 1 ELSE 0 END) "
         "FROM dbo.questions"
@@ -168,12 +188,16 @@ def verify(cursor) -> int:
               "Re-run without --check to republish.")
         return 1
 
-    # The view the report and the function both read. Selecting from it proves
-    # the joins resolve, which a CREATE VIEW does not.
-    cursor.execute("SELECT COUNT(*) FROM dbo.remediation_queue")
-    print(f"remediation_queue: {cursor.fetchone()[0]} row(s)")
-    cursor.execute("SELECT COUNT(*) FROM dbo.open_approvals")
-    print(f"open_approvals: {cursor.fetchone()[0]} row(s)")
+    # Every view is selected from, not just checked for existence. CREATE VIEW
+    # succeeds against columns that do not exist, so a view can be present and
+    # broken, and these are what the report and the approval function read.
+    for name in sorted(expected_views):
+        try:
+            cursor.execute(f"SELECT COUNT(*) FROM dbo.{name}")
+            print(f"{name}: {cursor.fetchone()[0]} row(s)")
+        except Exception as exc:  # noqa: BLE001
+            print(f"\n{name} exists but does not run: {exc}")
+            return 1
 
     print("\nschema is current")
     return 0

@@ -75,6 +75,7 @@ def build_cells() -> list[dict]:
         "source": (
             f'WORKSPACE_ID = "{WORKSPACE_ID}"\n'
             f'DATA_AGENT_ID = "{DATA_AGENT_ID}"\n'
+            'DATA_AGENT_NAME = ""  # the item\'s display name, passed to the agent path\n'
             f'SEMANTIC_MODEL_NAME = "{SEMANTIC_MODEL_NAME}"\n'
             f'LAKEHOUSE_NAME = "{LAKEHOUSE_NAME}"\n'
             f'KUSTO_URI = "{KUSTO_URI}"\n'
@@ -82,7 +83,11 @@ def build_cells() -> list[dict]:
             "\n"
             "# Which defect to act on. Activator passes these when a human approves.\n"
             'QUESTION_ID = ""  # for example "Q10". Empty means every approved defect.\n'
-            'APPROVED_BY = ""  # required. No anonymous changes to a governed model.\n'
+            "\n"
+            "# Required, and the run refuses without it: a governed model does not\n"
+            "# take anonymous changes. Activator passes it. Running this by hand,\n"
+            "# put your own sign-in here, for example \"you@contoso.com\".\n"
+            'APPROVED_BY = ""\n'
             "\n"
             "# DRY_RUN prints the diff and writes nothing. Leave it true until you\n"
             "# have read the diff at least once.\n"
@@ -153,8 +158,14 @@ def build_cells() -> list[dict]:
         "## 8. Hand off the agent-targeted work\n"
         "\n"
         "A reference run rather than `%run`, so `agent_remediate_agent` gets its\n"
-        "own session and the SDK it installs cannot affect this one. Skipped\n"
-        "entirely when there is no agent-targeted work, which is most runs."
+        "own session and a failure there cannot take this one down. Skipped\n"
+        "entirely when there is no agent-targeted work, which is most runs.\n"
+        "\n"
+        "A failure here does not fail this run, because the semantic model work\n"
+        "above has already landed. It is printed loudly instead: a quiet\n"
+        "handoff failure is indistinguishable from a working one, which is how\n"
+        "approved agent instructions once went unapplied for days while the\n"
+        "report showed the loop as healthy."
     ))
     cells.append(code(HANDOFF_CELL))
 
@@ -170,7 +181,9 @@ def build_cells() -> list[dict]:
     return cells
 
 
-HANDOFF_CELL = '''if not agent_pending:
+HANDOFF_CELL = '''agent_handoff_failed = ""
+
+if not agent_pending:
     print("no agent-targeted approvals, nothing to hand off")
 else:
     approval_ids = ",".join(r["approval_id"] for r in agent_pending)
@@ -179,6 +192,11 @@ else:
     # A failure here must not fail this run. The model-targeted work above has
     # already been applied and recorded, and reporting the whole run as failed
     # would send somebody looking for a semantic model change that did land.
+    #
+    # It must not be quiet either. This used to print one line among fifty and
+    # carry on, so an agent path that raised on every run looked exactly like
+    # an agent path that worked, and two approved instructions sat unapplied
+    # for days while the report said the loop was healthy.
     try:
         result = notebookutils.notebook.run(
             "agent_remediate_agent",
@@ -186,13 +204,24 @@ else:
             {
                 "APPROVAL_IDS": approval_ids,
                 "APPROVED_BY": APPROVED_BY,
+                "DATA_AGENT_NAME": DATA_AGENT_NAME,
                 "DRY_RUN": str(DRY_RUN).lower(),
             },
         )
         print(f"agent_remediate_agent returned: {result}")
     except Exception as exc:  # noqa: BLE001
-        print(f"agent remediation failed: {exc}")
+        agent_handoff_failed = str(exc)
+        print("=" * 72)
+        print("AGENT REMEDIATION FAILED. The semantic model work above is")
+        print("unaffected and is recorded. Nothing reached the data agent.")
+        print(f"  {agent_handoff_failed}")
+        print()
         print("The approvals stay open, so the next run picks them up again.")
+        print("Open agent_remediate_agent and run it by hand to see the error")
+        print("in full. Until it succeeds, the agent-targeted questions will")
+        print("keep failing the evaluation however many times they are")
+        print("approved.")
+        print("=" * 72)
 '''
 
 
@@ -235,7 +264,18 @@ def write_kusto(df, table):
 if not APPROVED_BY.strip():
     raise ValueError(
         "APPROVED_BY is required. A governed semantic model does not take "
-        "anonymous changes."
+        "anonymous changes, so this refuses rather than guessing who you "
+        "are.\\n"
+        "\\n"
+        "Running this by hand: set APPROVED_BY in the parameters cell above "
+        "to your own sign-in, for example \\"you@contoso.com\\", and run "
+        "again. While you are there, DRY_RUN is True by default and prints "
+        "the diff without writing anything. Read the diff once, then set it "
+        "to False to apply.\\n"
+        "\\n"
+        "Seeing this from an automated run: the Activator rule passes "
+        "APPROVED_BY itself, so an empty one means the rule has lost its "
+        "parameter. That is the bug, not this."
     )
 
 # The eventhouse is the only approval store, and nothing in it is mutated.
@@ -243,6 +283,11 @@ if not APPROVED_BY.strip():
 # same approval_id. The same expression is used by approve.py, the Activator
 # rule and the dashboard, so none of them can disagree about what is
 # outstanding.
+#
+# A bulk approval closes itself. When somebody approves the same sentence for
+# four questions at once, the approval function writes one remediation row per
+# covered approval and the mirror pushes those to the eventhouse, so this join
+# has already excluded them and no second identical write is ever queued.
 open_approvals_kql = """
 eval_approvals
 | where decision == "approved"
@@ -286,7 +331,7 @@ print(f"running as: {executing_identity}")
 #
 # Only model-targeted instructions change the DAX. Agent-targeted ones change
 # how an answer reads, which is a real fix for a real defect class, but it
-# needs the data agent SDK and therefore a pip install. That is confined to
+# writes to a different governed item. That is confined to
 # agent_remediate_agent, reached below with a reference run so it gets its own
 # session and cannot take this path down with it.
 agent_pending = [r for r in pending if r["instruction_target"] == TARGET_DATA_AGENT]
@@ -469,7 +514,7 @@ remediations_schema = StructType([
 ])
 
 
-def remediation_row(row, was_persisted):
+def remediation_row(row, was_persisted, wrote_something=True):
     return Row(
         remediation_id=str(uuid.uuid4()),
         # recorded_ts, not applied_ts, is the ordering key. A later
@@ -477,7 +522,11 @@ def remediation_row(row, was_persisted):
         # and if both rows carried the same applied_ts then arg_max would pick
         # between them arbitrarily and `verified` would flicker.
         recorded_ts=now,
-        applied_ts=now,
+        # Null when this run wrote nothing because the sentence was already in
+        # the model. That is what the column has always meant, and it is what
+        # lets the report separate "we changed the model" from "the model
+        # already said this" without a new column anywhere.
+        applied_ts=now if wrote_something else None,
         approval_id=row["approval_id"],
         question_id=row["question_id"],
         instruction_target=row["instruction_target"],
@@ -499,7 +548,7 @@ def remediation_row(row, was_persisted):
 # much as one this run added. Otherwise an approval applied by an earlier run,
 # or by a person editing the model directly, stays open forever.
 rows = [remediation_row(r, persisted) for r in applied_now]
-rows += [remediation_row(r, True) for r in already_present]
+rows += [remediation_row(r, True, wrote_something=False) for r in already_present]
 
 if rows and not DRY_RUN:
     remediations_df = spark.createDataFrame(rows, schema=remediations_schema)
@@ -512,6 +561,17 @@ elif rows:
     print(f"DRY_RUN, so {len(rows)} remediation(s) were not recorded")
 else:
     print("nothing recorded")
+
+if already_present:
+    print()
+    print("Nothing was written to the model for "
+          + ", ".join(sorted({r["question_id"] for r in already_present}))
+          + ". The approved sentence was already in the model's AI "
+          "instructions, so applying it again would have changed nothing and "
+          "would have added a duplicate line. Those approvals are closed "
+          "rather than left open, and they are recorded with no applied time "
+          "so the report shows them as already present rather than as a "
+          "change this run made.")
 '''
 
 
@@ -526,6 +586,12 @@ print("the defect belongs back with a human as tier 2.")
 print()
 if rows:
     print("questions to watch:", ", ".join(sorted({r["question_id"] for r in applied_now})))
+
+if agent_handoff_failed:
+    print()
+    print("Note that the agent-targeted approvals in this run did NOT reach the")
+    print("data agent. Re-running the evaluation will not improve them, because")
+    print("nothing was applied. Fix the handoff first.")
 '''
 
 

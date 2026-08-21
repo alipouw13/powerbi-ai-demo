@@ -6,14 +6,21 @@ Azure events. So approvals are written to SQL, where the user data function
 can reach them with a managed connection, and copied to the eventhouse, where
 Activator can watch them. Nothing downstream changes.
 
-Two copies, in opposite directions:
+Three copies, in two directions:
 
+    dbo.remediations   -->  eval_remediations   (closing rows, first)
     dbo.approvals      -->  eval_approvals      (so the rule can fire)
     eval_remediations  -->  dbo.remediations    (so the report can show status)
 
-The second is what makes `dbo.open_approvals` correct. Without it the view
+The last is what makes `dbo.open_approvals` correct. Without it the view
 never sees a remediation land, every applied approval looks open forever, and
 the function refuses every second approval for a question.
+
+The first exists for bulk approval. When somebody approves the same sentence
+for several questions at once, the approval function writes the closing rows
+straight into SQL, because those decisions need no write to the model at all.
+They are copied out first so that a covered approval can never reach the
+eventhouse ahead of the row that closes it.
 
 ## Why a notebook rather than a pipeline
 
@@ -114,10 +121,104 @@ def escape(value):
     Backslash first. Escaping the quotes before the backslashes turns `a\\\\`
     into `a\\\\"` and ends the literal early, which is both a broken command
     and the shape of an injection.
+
+    Newlines matter as much as quotes and are easier to forget. A Kusto
+    double quoted literal cannot contain a raw line break, so a decision note
+    with one produces a command that ends mid-string. The row never reaches
+    the eventhouse, the rule never fires, and because the mirror only marks a
+    row after the copy succeeds it will retry the same broken command every
+    minute forever. A person typing Enter in a note field would stop the loop.
+
+    A null arrives as None from some drivers and as a pandas NaN or NaT from
+    the one this notebook uses, and `str(nan)` is the string "nan", which
+    would be copied into the eventhouse as though somebody had written it.
     """
-    if value is None:
+    if value is None or value != value:
         return ""
-    return str(value).replace("\\\\", "\\\\\\\\").replace('"', '\\\\"')
+    return (
+        str(value)
+        .replace("\\\\", "\\\\\\\\")
+        .replace('"', '\\\\"')
+        .replace("\\r", "\\\\r")
+        .replace("\\n", "\\\\n")
+        .replace("\\t", "\\\\t")
+    )
+'''
+
+
+COVERED_CELL = '''# The third leg, and the reason it runs first.
+#
+# dbo.remediations is normally written by the remediation notebook, in the
+# eventhouse, and pulled back here. Bulk approval is the exception: when
+# somebody approves the same sentence for four questions at once, the approval
+# function writes three closing rows straight into SQL, because those
+# decisions need no write to the model at all.
+#
+# Those rows have to reach the eventhouse, or the leftanti join the remediation
+# notebook uses to find open work would treat all four as outstanding and
+# queue four identical writes.
+#
+# First, because the approval leg below is what makes the Activator rule fire.
+# Copying the closing row after the approval would leave a window in which the
+# rule sees an approval with nothing closing it.
+def kusto_datetime(value):
+    """A Kusto datetime literal from whatever SQL handed back.
+
+    A null datetime arrives as None from some drivers and as pandas NaT from
+    the one this notebook uses. NaT is not None, is not equal to itself, and
+    formats as the string "NaT", so a naive check produces `datetime(NaT)`
+    and a Kusto syntax error on exactly the rows this leg exists to copy.
+    """
+    if value is None or value != value or str(value) in ("", "NaT", "None"):
+        return "datetime(null)"
+    if not isinstance(value, str):
+        value = value.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    return f"datetime({value})"
+
+
+def kusto_bool(value):
+    return "true" if value else "false"
+
+
+in_eventhouse = {
+    row["remediation_id"]
+    for row in kusto_rows(kusto("eval_remediations | distinct remediation_id"))
+}
+
+unpushed = [
+    row for row in sql_rows(sql.query("""
+        SELECT remediation_id, recorded_ts, applied_ts, approval_id,
+               question_id, instruction_target, instruction, approved_by,
+               applied_by, dry_run, persisted, verified, verified_ts,
+               verified_run_id
+        FROM dbo.remediations
+        ORDER BY recorded_ts
+    """))
+    if str(row["remediation_id"]) not in in_eventhouse
+]
+
+print(f"{len(unpushed)} SQL remediation(s) not yet in the eventhouse")
+
+for row in unpushed:
+    kusto(
+        ".set-or-append eval_remediations <| print "
+        f'remediation_id="{escape(row["remediation_id"])}", '
+        f'recorded_ts={kusto_datetime(row["recorded_ts"])}, '
+        f'applied_ts={kusto_datetime(row["applied_ts"])}, '
+        f'approval_id="{escape(row["approval_id"])}", '
+        f'question_id="{escape(row["question_id"])}", '
+        f'instruction_target="{escape(row["instruction_target"])}", '
+        f'instruction="{escape(row["instruction"])}", '
+        f'approved_by="{escape(row["approved_by"])}", '
+        f'applied_by="{escape(row["applied_by"])}", '
+        f'dry_run={kusto_bool(row["dry_run"])}, backup_path="", '
+        f'persisted={kusto_bool(row["persisted"])}, '
+        f'verified={kusto_bool(row["verified"])}, '
+        f'verified_ts={kusto_datetime(row["verified_ts"])}, '
+        f'verified_run_id="{escape(row["verified_run_id"])}"',
+        endpoint="mgmt",
+    )
+    print(f"  pushed {row['question_id']} ({row['applied_by']})")
 '''
 
 
@@ -289,21 +390,31 @@ def build_cells() -> list[dict]:
     cells.append(code(MIRROR_CELL))
 
     cells.append(md(
-        "## 3. Approvals to the eventhouse\n"
+        "## 3. Closing rows to the eventhouse\n"
+        "\n"
+        "Bulk approvals close themselves in SQL. Those rows have to reach the\n"
+        "eventhouse before the approvals they close, or the rule fires on an\n"
+        "approval that nothing appears to close and the notebook queues a\n"
+        "duplicate write."
+    ))
+    cells.append(code(COVERED_CELL))
+
+    cells.append(md(
+        "## 4. Approvals to the eventhouse\n"
         "\n"
         "Unmirrored rows only, marked as mirrored after the copy succeeds."
     ))
     cells.append(code(APPROVALS_CELL))
 
     cells.append(md(
-        "## 4. Remediations back to SQL\n"
+        "## 5. Remediations back to SQL\n"
         "\n"
         "So `dbo.open_approvals` closes and the report shows applied and\n"
         "verified states."
     ))
     cells.append(code(REMEDIATIONS_CELL))
 
-    cells.append(md("## 5. What healthy looks like"))
+    cells.append(md("## 6. What healthy looks like"))
     cells.append(code(CHECK_CELL))
 
     return cells

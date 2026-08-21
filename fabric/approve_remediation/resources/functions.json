@@ -128,6 +128,92 @@
         "fabricFunctionParameters": [],
         "fabricFunctionReturnType": "str"
       }
+    },
+    {
+      "name": "list_similar_pending",
+      "scriptFile": "function_app.py",
+      "bindings": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "route": "",
+          "authLevel": "Anonymous",
+          "name": "req",
+          "direction": "In",
+          "type": "HttpTrigger"
+        },
+        {
+          "name": "invocation",
+          "direction": "In",
+          "type": "UserDataFunctionContext"
+        },
+        {
+          "itemType": null,
+          "subType": "FabricSqlConnection",
+          "alias": "agentevalsql",
+          "name": "sqlDb",
+          "direction": "In",
+          "type": "FabricItem"
+        }
+      ],
+      "fabricProperties": {
+        "fabricMetadataSchemaVersion": "1.1.0",
+        "fabricFunctionParameters": [
+          {
+            "dataType": "str",
+            "name": "questionId"
+          }
+        ],
+        "fabricFunctionReturnType": "str"
+      }
+    },
+    {
+      "name": "approve_similar",
+      "scriptFile": "function_app.py",
+      "bindings": [
+        {
+          "methods": [
+            "POST"
+          ],
+          "route": "",
+          "authLevel": "Anonymous",
+          "name": "req",
+          "direction": "In",
+          "type": "HttpTrigger"
+        },
+        {
+          "name": "invocation",
+          "direction": "In",
+          "type": "UserDataFunctionContext"
+        },
+        {
+          "itemType": null,
+          "subType": "FabricSqlConnection",
+          "alias": "agentevalsql",
+          "name": "sqlDb",
+          "direction": "In",
+          "type": "FabricItem"
+        }
+      ],
+      "fabricProperties": {
+        "fabricMetadataSchemaVersion": "1.1.0",
+        "fabricFunctionParameters": [
+          {
+            "dataType": "str",
+            "name": "questionId"
+          },
+          {
+            "dataType": "str",
+            "name": "decision"
+          },
+          {
+            "dataType": "str",
+            "name": "note"
+          }
+        ],
+        "fabricFunctionReturnType": "str"
+      }
     }
   ]
 }

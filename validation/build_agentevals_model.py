@@ -334,6 +334,13 @@ TABLES: list[Table] = [
                    "approval email, or 'cli'."),
             Column("note", "Decision Note", TEXT,
                    "Free text the approver added."),
+            Column("covered_by", "Covered By Approval", TEXT,
+                   "Set when this decision was made as part of a group: the "
+                   "same sentence was proposed for several questions and "
+                   "another approval carries the change for all of them. A "
+                   "real decision about a real question that needs no write "
+                   "of its own, because the sentence is only written once.",
+                   hidden=True),
             Column("mirrored_ts", "Mirrored Time", TIME,
                    "When the approval reached the eventhouse that triggers "
                    "the remediation notebook. Blank means the trigger has not "
@@ -389,8 +396,10 @@ TABLES: list[Table] = [
                    "When the remediation was recorded.",
                    format_string="General Date"),
             Column("applied_ts", "Applied Time", TIME,
-                   "When the instruction was written. Blank if it was never "
-                   "applied.", format_string="General Date"),
+                   "When the instruction was written. Blank when nothing was "
+                   "written: either the sentence was already there, or this "
+                   "decision was covered by another approval that carries the "
+                   "same change.", format_string="General Date"),
             Column("approval_id", "Approval ID", TEXT,
                    "The decision that authorised this.", hidden=True),
             Column("question_id", "Question ID", TEXT,
@@ -670,6 +679,91 @@ MEASURES: list[Measure] = [
         "The loop still asks a person first; this only says it could not.",
         "#,##0", DEFECTS,
     ),
+    Measure(
+        "Defects", "Questions Sharing This Fix",
+        "VAR Sentence = SELECTEDVALUE ( 'Defects'[Proposed Instruction] )\n"
+        "VAR Target = SELECTEDVALUE ( 'Defects'[Instruction Target] )\n"
+        "RETURN\n"
+        "    IF (\n"
+        "        NOT ISBLANK ( Sentence ),\n"
+        "        CALCULATE (\n"
+        "            DISTINCTCOUNT ( 'Defects'[Question ID] ),\n"
+        "            REMOVEFILTERS ( 'Questions' ),\n"
+        "            REMOVEFILTERS ( 'Defects' ),\n"
+        "            'Defects'[Proposed Instruction] = Sentence,\n"
+        "            'Defects'[Instruction Target] = Target\n"
+        "        )\n"
+        "    )",
+        "How many questions the same proposed sentence was written for. The "
+        "harness proposes from a small library, so one wrong behaviour "
+        "usually shows up against several questions at once, and those are "
+        "one decision rather than several. Blank unless a single sentence is "
+        "in context.",
+        "#,##0", DEFECTS,
+    ),
+    Measure(
+        "Defects", "In Decision Queue",
+        "VAR LatestRunID =\n"
+        "    MAXX (\n"
+        "        TOPN (\n"
+        "            1,\n"
+        "            'Evaluation Runs',\n"
+        "            'Evaluation Runs'[Run Time], DESC,\n"
+        "            'Evaluation Runs'[Run ID], ASC\n"
+        "        ),\n"
+        "        'Evaluation Runs'[Run ID]\n"
+        "    )\n"
+        "VAR FoundNow =\n"
+        "    CALCULATE ( [Defects Found], 'Evaluation Runs'[Run ID] = LatestRunID )\n"
+        "VAR Sentence = SELECTEDVALUE ( 'Defects'[Proposed Instruction] )\n"
+        "VAR AlreadyDecided =\n"
+        "    IF (\n"
+        "        NOT ISBLANK ( Sentence ) && Sentence <> \"\",\n"
+        "        CALCULATE (\n"
+        "            COUNTROWS ( 'Approvals' ),\n"
+        "            'Approvals'[Approved Instruction] = Sentence\n"
+        "        )\n"
+        "    )\n"
+        "RETURN\n"
+        "    IF ( NOT ISBLANK ( FoundNow ) && ISBLANK ( AlreadyDecided ), 1 )",
+        "1 when this defect is still waiting on a person: the most recent run "
+        "found it, and nobody has decided on that exact sentence for that "
+        "question yet. Blank otherwise, which is what keeps decided and "
+        "superseded defects out of the approval queue. A defect from an older "
+        "run is history, not work: the loop re-detects everything that is "
+        "still wrong on every run.",
+        "#,##0", DEFECTS,
+    ),
+    Measure(
+        "Defects", "Writes To",
+        'VAR Sentence = SELECTEDVALUE ( \'Defects\'[Proposed Instruction] )\n'
+        'VAR Target = SELECTEDVALUE ( \'Defects\'[Instruction Target] )\n'
+        'VAR Manual =\n'
+        '    "Nothing is written. A person makes this change - see Fix Target."\n'
+        'RETURN\n'
+        '    IF (\n'
+        '        [In Decision Queue] = 1,\n'
+        '        SWITCH (\n'
+        '            TRUE (),\n'
+        '            ISBLANK ( Sentence ) || Sentence = "", Manual,\n'
+        '            Target = "semantic_model",\n'
+        '                "Semantic model -> AI instructions (not a table or column)",\n'
+        '            Target = "data_agent",\n'
+        '                "Data agent -> AI instructions (published after writing)",\n'
+        '            Manual\n'
+        '        )\n'
+        '    )',
+        "Where an approved fix actually lands, in the words a reviewer needs "
+        "before deciding. A semantic model instruction is written to one "
+        "property, cultures['en-US'].linguisticMetadata.content."
+        "CustomInstructions, which is the AI instructions box under Prep data "
+        "for AI. It is not the model description, and it is never a table, a "
+        "column or a measure: anything needing those is tier 2 and leaves the "
+        "automated loop for a person. Blank unless the defect is still in the "
+        "decision queue, which is also what stops the approval table showing "
+        "question and defect combinations that never happened.",
+        "", DEFECTS,
+    ),
 
     # ---- Approvals -------------------------------------------------------
     Measure(
@@ -728,13 +822,49 @@ MEASURES: list[Measure] = [
         "disagree with what actually happened.",
         "#,##0", APPROVALS,
     ),
+    Measure(
+        "Approvals", "Covered By Another Approval",
+        "CALCULATE ( [Approved], NOT ISBLANK ( 'Approvals'[Covered By Approval] ) )",
+        "Approvals made as part of a group, where another approval carries "
+        "the change. They are real decisions about real questions; they "
+        "simply queue no second copy of a sentence that is already being "
+        "written once.",
+        "#,##0", APPROVALS,
+    ),
 
     # ---- Remediation -----------------------------------------------------
     Measure(
         "Remediations", "Remediations Applied",
         "CALCULATE ( COUNTROWS ( 'Remediations' ), 'Remediations'[Persisted] = TRUE () )",
-        "Approved instructions that were really written to a semantic model "
-        "or data agent. Rehearsals are excluded.",
+        "Approved instructions the loop has finished with: written, or found "
+        "to be there already. Rehearsals are excluded. This is what closes an "
+        "approval, so it is the denominator for whether the loop kept up.",
+        "#,##0", REMEDIATION,
+    ),
+    Measure(
+        "Remediations", "Instructions Written",
+        "CALCULATE (\n"
+        "    COUNTROWS ( 'Remediations' ),\n"
+        "    'Remediations'[Persisted] = TRUE (),\n"
+        "    NOT ISBLANK ( 'Remediations'[Applied Time] )\n"
+        ")",
+        "Remediations that actually changed a semantic model or a data agent. "
+        "Smaller than Remediations Applied whenever a sentence was already "
+        "there or was covered by another approval, and the difference is not "
+        "a failure: it is the loop declining to write the same line twice.",
+        "#,##0", REMEDIATION,
+    ),
+    Measure(
+        "Remediations", "Already Present",
+        "CALCULATE (\n"
+        "    COUNTROWS ( 'Remediations' ),\n"
+        "    'Remediations'[Persisted] = TRUE (),\n"
+        "    ISBLANK ( 'Remediations'[Applied Time] )\n"
+        ")",
+        "Approvals that needed no write, because the sentence was already in "
+        "the model or the agent, or because another approval in the same "
+        "group carries it. A high number next to a low Instructions Written "
+        "is the loop being efficient rather than stuck.",
         "#,##0", REMEDIATION,
     ),
     Measure(
@@ -751,8 +881,9 @@ MEASURES: list[Measure] = [
     Measure(
         "Remediations", "Verified Fix %",
         "DIVIDE ( [Remediations Verified], [Remediations Applied] )",
-        "Share of applied fixes that a later run proved worked. A low value "
-        "means the loop is changing things without evidence that it helped.",
+        "Share of finished remediations that a later run proved worked. A low "
+        "value means the loop is changing things without evidence that it "
+        "helped.",
         "0.0%", REMEDIATION,
     ),
 

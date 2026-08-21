@@ -10,6 +10,11 @@ Nothing here applies anything. These functions write rows. A pipeline mirrors
 approvals to the eventhouse, and an Activator rule starts the remediation
 notebook. If this function could start a notebook, anyone who could call it
 could run a job against a governed model.
+
+The one apparent exception is `approve_similar`, which writes a remediation
+row as well as an approval row. It is not applying anything either: the row
+records that this decision needs no write of its own, because the sentence is
+already being written once by the approval it names.
 """
 
 import uuid
@@ -23,6 +28,11 @@ APPROVED = "approved"
 REJECTED = "rejected"
 
 VERDICTS = ("wrong", "misleading", "right")
+
+# The one status string in dbo.remediation_queue that means nobody has
+# decided yet. Named here so a comparison against it cannot be spelled two
+# ways in two functions.
+AWAITING = "awaiting approval"
 
 # Where an instruction takes effect. Agent instructions are applied after the
 # query has run, so they change how an answer reads and nothing else.
@@ -72,6 +82,61 @@ def _question(value):
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+def _latest_defect(cursor, question_id):
+    """The most recent defect for a question, or None.
+
+    Parameterised, because question_id reaches this from a report input
+    slicer and is caller controlled however much it looks like a dropdown.
+    """
+    cursor.execute(
+        "SELECT TOP 1 d.proposed_instruction, d.instruction_target, "
+        "       d.tier, d.auto_appliable "
+        "FROM dbo.defects AS d "
+        "JOIN dbo.runs AS r ON r.run_id = d.run_id "
+        "WHERE d.question_id = ? "
+        "ORDER BY r.run_ts DESC",
+        question_id,
+    )
+    return cursor.fetchone()
+
+
+def _siblings(cursor, question_id):
+    """Other questions whose latest defect proposes the identical sentence.
+
+    The harness proposes from a small library, so one wrong behaviour usually
+    appears as the same instruction against several questions at once. They
+    are the same decision, and dbo.similar_fixes is where that grouping is
+    defined once rather than in each caller.
+    """
+    cursor.execute(
+        "SELECT s.[Question], s.[Status], s.[Target], s.[Add this instruction] "
+        "FROM dbo.similar_fixes AS s "
+        "JOIN dbo.similar_fixes AS me ON me.[Fix Group] = s.[Fix Group] "
+        "WHERE me.[Question] = ? AND s.[Question] <> ? "
+        "ORDER BY s.[Question]",
+        question_id, question_id,
+    )
+    return cursor.fetchall()
+
+
+def _covering_approval(cursor, question_id, decision):
+    """The decision this group is being asked to follow, or None.
+
+    The most recent decision of the same kind for this question. Approving a
+    group asks for a prior approval; rejecting one asks for a prior rejection.
+    Reading either as licence for the other would record agreement nobody
+    expressed.
+    """
+    cursor.execute(
+        "SELECT TOP 1 approval_id, proposed_instruction, instruction_target "
+        "FROM dbo.approvals "
+        "WHERE question_id = ? AND decision = ? "
+        "ORDER BY approved_ts DESC",
+        question_id, decision,
+    )
+    return cursor.fetchone()
 
 
 # --------------------------------------------------------------------------
@@ -142,19 +207,8 @@ def approve_remediation(
     connection, cursor = _cursor(sqlDb)
     try:
         # The latest defect for this question, and whether it is safe to
-        # apply. Parameterised, because question_id reaches this from a report
-        # input slicer and is caller controlled however much it looks like a
-        # dropdown.
-        cursor.execute(
-            "SELECT TOP 1 d.proposed_instruction, d.instruction_target, "
-            "       d.tier, d.auto_appliable "
-            "FROM dbo.defects AS d "
-            "JOIN dbo.runs AS r ON r.run_id = d.run_id "
-            "WHERE d.question_id = ? "
-            "ORDER BY r.run_ts DESC",
-            question_id,
-        )
-        defect = cursor.fetchone()
+        # apply.
+        defect = _latest_defect(cursor, question_id)
         if defect is None:
             raise fn.UserThrownError(
                 f"No open defect for {question_id}.",
@@ -194,15 +248,22 @@ def approve_remediation(
         # The instruction text is copied into the approval rather than
         # referenced. A person approves a specific sentence, and the proposal
         # can change on the next run.
+        #
+        # covered_by is null: this approval is the one that carries the change.
         cursor.execute(
             "INSERT INTO dbo.approvals (approval_id, approved_ts, question_id, "
             "  instruction_target, proposed_instruction, decision, approved_by, "
-            "  approver_oid, source, note) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "  approver_oid, source, note, covered_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             approval_id, _now(), question_id, target, instruction or "",
-            decision, approved_by, oid, "report", (note or "").strip(),
+            decision, approved_by, oid, "report", (note or "").strip(), None,
         )
         connection.commit()
+
+        # Read after the commit, so the count is what the next caller will
+        # see rather than what this transaction happens to be holding.
+        waiting = [row[0] for row in _siblings(cursor, question_id)
+                   if row[1] == AWAITING]
     finally:
         cursor.close()
         connection.close()
@@ -212,10 +273,187 @@ def approve_remediation(
 
     where = ("the model AI instructions" if target == TARGET_SEMANTIC_MODEL
              else "the data agent instructions")
-    return (
+    message = (
         f"Approved {question_id} as {approved_by}. The instruction goes into "
         f"{where}, the remediation runs within about two minutes, and the next "
         f"evaluation says whether it worked. Approval {approval_id}."
+    )
+    if waiting:
+        # Said here, at the moment of approving, because this is when a person
+        # can act on it. Finding out later that four other questions carried
+        # the same sentence means four more trips through the same queue.
+        message += (
+            f" {len(waiting)} other question(s) are waiting on this exact "
+            f"sentence: {', '.join(waiting)}. They are the same decision. Use "
+            "approve_similar to record them together, which marks them "
+            "approved without queueing a second copy of a change that is "
+            "already being made."
+        )
+    return message
+
+
+@udf.connection(argName="sqlDb", alias="agentevalsql")
+@udf.context(argName="invocation")
+@udf.function()
+def list_similar_pending(
+    sqlDb: fn.FabricSqlConnection,
+    invocation: fn.UserDataFunctionContext,
+    questionId: str,
+) -> str:
+    """Which other questions are waiting on the same sentence.
+
+    Read only. This is what a person looks at before deciding whether to
+    approve a group, and it names every question in the group with where it
+    has got to, including the ones already decided, because "there are three
+    others and two of them are done" is a different situation from "there are
+    three others and nobody has looked at them".
+    """
+    question_id = _question(questionId)
+    connection, cursor = _cursor(sqlDb)
+    try:
+        if _latest_defect(cursor, question_id) is None:
+            raise fn.UserThrownError(
+                f"No open defect for {question_id}.",
+                {"hint": "The queue may have moved on. Refresh and look again."},
+            )
+        rows = _siblings(cursor, question_id)
+    finally:
+        cursor.close()
+        connection.close()
+
+    if not rows:
+        return (
+            f"No other question carries the same proposed fix as "
+            f"{question_id}. Approving it affects that question alone."
+        )
+
+    waiting = [row[0] for row in rows if row[1] == AWAITING]
+    lines = [f"{row[0]} ({row[1]})" for row in rows]
+    head = (
+        f"{len(rows)} other question(s) carry the same proposed fix as "
+        f"{question_id}, aimed at {rows[0][2]}:"
+    )
+    tail = (
+        f"\n\n{len(waiting)} of them are still waiting for a decision. "
+        "approve_similar records them all at once, without queueing a second "
+        "copy of the same change."
+        if waiting else
+        "\n\nAll of them have already been decided."
+    )
+    return head + "\n" + "\n".join(lines) + tail
+
+
+@udf.connection(argName="sqlDb", alias="agentevalsql")
+@udf.context(argName="invocation")
+@udf.function()
+def approve_similar(
+    sqlDb: fn.FabricSqlConnection,
+    invocation: fn.UserDataFunctionContext,
+    questionId: str,
+    decision: str,
+    note: str = "",
+) -> str:
+    """Record the same decision for every question carrying the same sentence.
+
+    `questionId` is the question that was decided first. This applies that
+    decision to its group and to nothing else.
+
+    An approval recorded here is a real decision by a real person about a real
+    question. What it does not do is queue a second copy of a change that is
+    already being made: the sentence is one sentence, the model or the agent
+    gets one line, and approving it four times would produce four identical
+    lines, four remediation runs and four chances for one of them to fail
+    halfway.
+
+    So each approved row is written with `covered_by` naming the approval that
+    carries the change, together with a remediation row that has no applied
+    time. The approval is closed, the loop has nothing to apply, and the
+    report can say why.
+    """
+    question_id = _question(questionId)
+    decision = (decision or "").strip().lower()
+    if decision not in (APPROVED, REJECTED):
+        raise fn.UserThrownError(
+            f"Decision must be '{APPROVED}' or '{REJECTED}'.",
+            {"received": decision},
+        )
+
+    approved_by, oid = _caller(invocation)
+    connection, cursor = _cursor(sqlDb)
+    try:
+        covering = _covering_approval(cursor, question_id, decision)
+        if covering is None:
+            raise fn.UserThrownError(
+                f"{question_id} has not been {decision}, so there is nothing "
+                "for the others to follow.",
+                {"hint": "Decide one question first. That decision is what "
+                         "changes the model or the agent; this records the "
+                         "same one for the questions that share its fix."},
+            )
+        covering_id, instruction, target = covering
+
+        candidates = [row for row in _siblings(cursor, question_id)
+                      if row[1] == AWAITING]
+        if not candidates:
+            return (
+                f"Nothing to do. No other question is waiting on the same "
+                f"sentence as {question_id}."
+            )
+
+        decided = []
+        for sibling_id, _status, sibling_target, sibling_instruction in candidates:
+            approval_id = str(uuid.uuid4())
+            cursor.execute(
+                "INSERT INTO dbo.approvals (approval_id, approved_ts, "
+                "  question_id, instruction_target, proposed_instruction, "
+                "  decision, approved_by, approver_oid, source, note, "
+                "  covered_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                approval_id, _now(), sibling_id, sibling_target,
+                sibling_instruction or instruction, decision, approved_by, oid,
+                "report", (note or "").strip(),
+                covering_id if decision == APPROVED else None,
+            )
+
+            if decision == APPROVED:
+                # The closing row. persisted, so the approval is not open and
+                # no remediation run will pick it up; no applied_ts, because
+                # this decision wrote nothing and claiming otherwise would put
+                # a change in the history that never happened.
+                cursor.execute(
+                    "INSERT INTO dbo.remediations (remediation_id, "
+                    "  recorded_ts, applied_ts, approval_id, question_id, "
+                    "  instruction_target, instruction, approved_by, "
+                    "  applied_by, dry_run, persisted, verified, verified_ts, "
+                    "  verified_run_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    str(uuid.uuid4()), _now(), None, approval_id, sibling_id,
+                    sibling_target, sibling_instruction or instruction,
+                    approved_by, f"covered by approval {covering_id}",
+                    0, 1, 0, None, None,
+                )
+            decided.append(sibling_id)
+
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
+
+    if decision == REJECTED:
+        return (
+            f"Rejected {len(decided)} question(s) carrying the same fix as "
+            f"{question_id}: {', '.join(decided)}. Nothing will be applied for "
+            "them."
+        )
+
+    where = ("the model AI instructions" if target == TARGET_SEMANTIC_MODEL
+             else "the data agent instructions")
+    return (
+        f"Approved {len(decided)} question(s) alongside {question_id}: "
+        f"{', '.join(decided)}. The sentence is written to {where} once, by "
+        f"the approval for {question_id}. These are recorded as approved and "
+        "covered by it, so nothing is queued twice and the next evaluation "
+        "run is what says whether the fix worked for all of them."
     )
 
 

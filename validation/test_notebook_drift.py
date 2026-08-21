@@ -93,14 +93,18 @@ class TestMirrorNotebook(unittest.TestCase):
         workspace, so only the function is compiled. That keeps this a real
         test of the shipped code rather than of a copy.
         """
+        return self.helper("sql_rows")
+
+    def helper(self, name: str):
+        """One top-level function from the notebook, compiled on its own."""
         tree = ast.parse(self.source)
         for node in tree.body:
-            if isinstance(node, ast.FunctionDef) and node.name == "sql_rows":
+            if isinstance(node, ast.FunctionDef) and node.name == name:
                 namespace: dict = {}
-                exec(compile(ast.Module([node], []), "<sql_rows>", "exec"),  # noqa: S102
+                exec(compile(ast.Module([node], []), f"<{name}>", "exec"),  # noqa: S102
                      namespace)
-                return namespace["sql_rows"]
-        self.fail("the mirror notebook has no sql_rows helper")
+                return namespace[name]
+        self.fail(f"the mirror notebook has no {name} helper")
 
     def test_no_rows_to_mirror_is_not_an_error(self) -> None:
         """The steady state. Almost every run has nothing to copy.
@@ -126,6 +130,74 @@ class TestMirrorNotebook(unittest.TestCase):
         """Every SELECT has to go through sql_rows, or None crashes it again."""
         self.assertNotIn("list(pending)", self.source)
         self.assertIn("sql_rows(pending)", self.source)
+
+    def test_a_null_applied_time_becomes_a_kusto_null(self) -> None:
+        """The marker for "this approval was satisfied without a write".
+
+        It arrives from this driver as pandas NaT, which is not None, is not
+        equal to itself, and formats as the string "NaT". The stand-in below
+        has the one property that matters.
+        """
+        class NotATime:
+            def __ne__(self, other):
+                return True
+
+            def __eq__(self, other):
+                return False
+
+            def __str__(self):
+                return "NaT"
+
+        kusto_datetime = self.helper("kusto_datetime")
+        for value in (None, "", NotATime()):
+            with self.subTest(value=repr(value)):
+                self.assertEqual(kusto_datetime(value), "datetime(null)")
+
+    def test_a_real_timestamp_is_formatted_for_kusto(self) -> None:
+        kusto_datetime = self.helper("kusto_datetime")
+        self.assertEqual(kusto_datetime("2026-01-02T03:04:05.000000Z"),
+                         "datetime(2026-01-02T03:04:05.000000Z)")
+
+    def test_a_null_string_never_reaches_the_eventhouse_as_nan(self) -> None:
+        class NotANumber(float):
+            def __ne__(self, other):
+                return True
+
+            def __eq__(self, other):
+                return False
+
+            def __str__(self):
+                return "nan"
+
+        escape = self.helper("escape")
+        self.assertEqual(escape(None), "")
+        self.assertEqual(escape(NotANumber()), "")
+
+    def test_it_still_escapes_a_quote_and_a_backslash(self) -> None:
+        escape = self.helper("escape")
+        self.assertEqual(escape('a"b'), 'a\\"b')
+        self.assertEqual(escape("a\\b"), "a\\\\b")
+
+    def test_a_newline_in_a_note_does_not_break_the_command(self) -> None:
+        """Found the hard way, against the real eventhouse.
+
+        A Kusto double quoted literal cannot carry a raw line break, so a
+        note with one produces a command that ends mid-string. The row never
+        mirrors, and because rows are only marked after a successful copy,
+        the mirror retries the same broken command every minute forever. One
+        person pressing Enter in a note field would stop the loop.
+        """
+        escape = self.helper("escape")
+        self.assertEqual(escape("line one\nline two"), "line one\\nline two")
+        self.assertEqual(escape("a\r\nb"), "a\\r\\nb")
+        self.assertEqual(escape("a\tb"), "a\\tb")
+
+    def test_escaping_leaves_no_raw_control_character(self) -> None:
+        escape = self.helper("escape")
+        hostile = 'note "quoted"\nsecond\tline\\ending'
+        for raw in ("\n", "\r", "\t"):
+            with self.subTest(character=repr(raw)):
+                self.assertNotIn(raw, escape(hostile))
 
     def test_it_is_a_python_notebook_not_spark(self) -> None:
         """Scheduled runs use the stored metadata, not the kernel you picked.
@@ -333,7 +405,23 @@ class TestRemediationNotebook(unittest.TestCase):
         # Otherwise an approval applied by an earlier run, or by a person,
         # sits open forever and nobody is prompted about it again.
         self.assertIn("already_present", self.joined)
-        self.assertIn("remediation_row(r, True) for r in already_present", self.joined)
+        self.assertIn(
+            "remediation_row(r, True, wrote_something=False) for r in already_present",
+            self.joined,
+        )
+
+    def test_an_already_present_instruction_records_no_applied_time(self) -> None:
+        """persisted with a null applied_ts is "satisfied, nothing written".
+
+        The distinction is the whole reason a person can tell a fix this run
+        made from one the model already carried, and it needs no column that
+        the eventhouse does not already have.
+        """
+        self.assertIn("applied_ts=now if wrote_something else None", self.joined)
+
+    def test_it_says_so_when_it_wrote_nothing(self) -> None:
+        """A silent no-op is indistinguishable from a change that worked."""
+        self.assertIn("Nothing was written to the model for", self.joined)
 
     def test_dry_run_records_nothing(self) -> None:
         # A dry run that wrote a persisted remediation would close the
@@ -410,9 +498,9 @@ class TestRemediationNotebook(unittest.TestCase):
 class TestAgentRemediationNotebook(unittest.TestCase):
     """The agent instruction path, and the isolation that makes it safe.
 
-    Separate from agent_remediate because it installs the data agent SDK at
-    run time, and this repo has already lost a scheduled job to a pip install
-    replacing the runtime's own dependencies.
+    Separate from agent_remediate because it writes to a different governed
+    item and must not be able to fail a run whose semantic model work has
+    already landed.
     """
 
     def setUp(self) -> None:
@@ -464,16 +552,77 @@ class TestAgentRemediationNotebook(unittest.TestCase):
         self.assertIn('!= TARGET_DATA_AGENT', self.joined)
 
     def test_it_refuses_to_write_what_it_could_not_read(self) -> None:
-        # update_settings replaces the whole value, so a failed read would
+        # The staging PATCH replaces the whole value, so a failed read would
         # delete whatever a person wrote by hand.
-        self.assertIn("Could not read the agent's current instructions", self.joined)
+        self.assertIn("Could not read the agent's staging settings", self.joined)
+
+    def test_it_reads_and_writes_on_one_api_plane(self) -> None:
+        """The bug that made two approved instructions vanish.
+
+        The write PATCHes the public API's staging `aiInstructions`.
+        `get_configuration` reads the deprecated workload-host
+        `additionalInstructions`. Mixing them means the read back cannot see
+        the write it is checking, so the notebook either refused or claimed
+        the write had not landed, and the caller swallowed both.
+        """
+        self.assertIn('"/staging/settings" if stage == "staging"', self.joined)
+        self.assertIn('read_stage("staging")', self.joined)
+        self.assertIn('"PATCH", "/staging/settings"', self.joined)
+        self.assertNotIn("get_configuration(", self.joined)
+
+    def test_it_publishes_rather_than_leaving_the_change_in_staging(self) -> None:
+        """Staging is a draft. Nobody queries it.
+
+        Without this the instruction reaches the agent item and changes
+        nothing anybody can observe, while the loop records it as applied.
+        """
+        self.assertIn('agent_api("POST", "/staging/publish"', self.joined)
+
+    def test_the_publish_records_who_approved_it(self) -> None:
+        # publishedDescription, not description. The endpoint accepts both and
+        # ignores the latter, so a publish can look recorded and carry nothing.
+        self.assertIn("publishedDescription", self.joined)
+        self.assertNotIn('"description":', self.joined)
+
+    def test_it_verifies_against_the_published_configuration(self) -> None:
+        self.assertIn('read_stage("published")', self.joined)
+        self.assertIn("the publish did not carry every approved instruction",
+                      self.joined)
+
+    def test_it_does_not_rewrite_a_sentence_the_agent_already_has(self) -> None:
+        """Re-applying an applied instruction is a duplicate line, not a fix."""
+        self.assertIn("already_present", self.joined)
+        self.assertIn("already published, nothing to add", self.joined)
+        self.assertIn("Nothing was written to the agent for", self.joined)
+
+    def test_an_already_present_instruction_records_no_applied_time(self) -> None:
+        self.assertIn("datetime(null)", self.joined)
+        self.assertIn("applied_ts={applied_ts}", self.joined)
+
+    def test_it_writes_the_same_columns_as_the_model_path(self) -> None:
+        """`.set-or-append` needs the schema of the table it appends to.
+
+        The model path writes backup_path. A shorter row here would fail
+        against a table that path created, and the two notebooks write to the
+        same table on purpose.
+        """
+        self.assertIn('backup_path=""', self.joined)
+
+    def test_it_names_the_agent_by_workspace_too(self) -> None:
+        """A reference run resolves neither the agent nor the workspace.
+
+        The URL carries both ids, so a lookup by display name cannot find the
+        wrong agent in a workspace that has two.
+        """
+        self.assertIn("/workspaces/{WORKSPACE_ID}/dataAgents/{DATA_AGENT_ID}",
+                      self.joined)
 
     def test_it_appends_under_one_heading(self) -> None:
         self.assertIn("merge_instruction", self.joined)
         self.assertIn(agent_builder.AGENT_HEADING, self.joined)
 
     def test_it_reads_back_and_fails_loudly_on_mismatch(self) -> None:
-        self.assertIn("the write did not land", self.joined)
+        self.assertIn("the staging write did not land", self.joined)
 
     def test_it_only_acts_on_approved_and_unapplied_rows(self) -> None:
         self.assertIn('decision == "approved"', self.joined)
@@ -498,11 +647,15 @@ class TestAgentRemediationNotebook(unittest.TestCase):
             with self.subTest(forbidden=forbidden):
                 self.assertNotIn(forbidden, self.joined)
 
-    def test_the_install_is_confined_to_this_notebook(self) -> None:
-        self.assertIn("%pip install", self.joined)
-        for other in (NOTEBOOK, REMEDIATION_NOTEBOOK):
-            # Code cells only. Both of those notebooks discuss the pip install
-            # rule in prose, and that prose is the reason the rule exists.
+    def test_no_notebook_installs_anything_at_run_time(self) -> None:
+        # This used to assert the opposite for this one notebook: the install
+        # was allowed here and banned everywhere else. It cancelled the Spark
+        # session in ten seconds on the first real agent-targeted approval,
+        # before a line of the notebook's own code ran, so the rule is now
+        # absolute. The three calls the SDK was used for are plain REST.
+        for other in (NOTEBOOK, REMEDIATION_NOTEBOOK, AGENT_NOTEBOOK):
+            # Code cells only. These notebooks discuss the pip install rule in
+            # prose, and that prose is the reason the rule exists.
             source = "".join(
                 "".join(c["source"])
                 for c in json.loads(other.read_text(encoding="utf-8"))["cells"]
@@ -510,6 +663,20 @@ class TestAgentRemediationNotebook(unittest.TestCase):
             )
             with self.subTest(notebook=other.name):
                 self.assertNotIn("%pip install", source)
+                self.assertNotIn("%conda install", source)
+
+    def test_it_does_not_import_the_data_agent_sdk(self) -> None:
+        # The import is what forced the install. Reaching for it again would
+        # reintroduce the failure whatever the install rule says.
+        for forbidden in ("fabric.dataagent", "FabricDataAgentManagement"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, self.joined)
+
+    def test_it_publishes_as_well_as_writing_staging(self) -> None:
+        # Writing staging alone is how two approved instructions were recorded
+        # as applied while the agent never changed.
+        self.assertIn("/staging/settings", self.joined)
+        self.assertIn("/staging/publish", self.joined)
 
 
 class TestRemediationHandsOffTheAgentWork(unittest.TestCase):
@@ -531,8 +698,23 @@ class TestRemediationHandsOffTheAgentWork(unittest.TestCase):
 
     def test_a_failed_handoff_does_not_fail_the_model_work(self) -> None:
         # The model change has already landed and been recorded by this point.
-        self.assertIn("agent remediation failed", self.joined)
+        self.assertIn("AGENT REMEDIATION FAILED", self.joined)
         self.assertIn("The approvals stay open", self.joined)
+
+    def test_a_failed_handoff_is_impossible_to_miss(self) -> None:
+        """It used to print one line among fifty and carry on.
+
+        An agent path that raised on every run then looked exactly like one
+        that worked, which is how approved agent instructions sat unapplied
+        while the report showed the loop as healthy.
+        """
+        self.assertIn("agent_handoff_failed", self.joined)
+        self.assertIn("Nothing reached the data agent", self.joined)
+        self.assertIn("did NOT reach the", self.joined)
+
+    def test_it_passes_the_agent_name_on(self) -> None:
+        """The child cannot resolve the agent from a reference run's context."""
+        self.assertIn('"DATA_AGENT_NAME": DATA_AGENT_NAME', self.joined)
 
     def test_it_still_refuses_a_target_it_cannot_act_on(self) -> None:
         self.assertIn("unsupported instruction targets", self.joined)

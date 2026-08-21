@@ -17,6 +17,16 @@
       "name": "list_pending_remediations",
       "description": "What is waiting for a decision.",
       "isPublicEndpointEnabled": false
+    },
+    {
+      "name": "list_similar_pending",
+      "description": "Which other questions are waiting on the same proposed sentence as this one. Read only.",
+      "isPublicEndpointEnabled": false
+    },
+    {
+      "name": "approve_similar",
+      "description": "Record the same decision for every question carrying the same proposed sentence. Approved rows are marked as covered by the approval that carries the change, so nothing is applied twice.",
+      "isPublicEndpointEnabled": false
     }
   ],
   "libraries": {

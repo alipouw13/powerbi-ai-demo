@@ -48,8 +48,8 @@ this whole loop exists to prevent.
 | Five KPI cards | `Score Headline`, `Score %`, `Flaky Questions`, `Failing Questions`, `Guardrails Lost` |
 | Attempts by question and grade | Every attempt, coloured by grade. A question with two colours is a flake |
 | Attempts by grade | The overall split, including `Errored`, which is not the same as wrong |
-| Questions and how they were answered | The review list: question, outcome, grade, and the answer verbatim |
-| What the harness proposes to fix it | The agent's own comment on each defect |
+| Questions and how they were answered | The review list: question, outcome, grade, attempts, and the answer verbatim |
+| What the harness proposes to fix it | The agent's own comment on each defect, and how many runs have found it |
 
 The last two are separate visuals rather than one wide table, and that is not a
 layout preference. `Answers` and `Defects` both point at `Questions`, so a
@@ -58,6 +58,29 @@ fix. No such relationship exists. It renders as **"Can't determine
 relationships between the fields"**, which is exactly how the first version of
 this page shipped, and `test_agentevals_report.py` now fails the build for any
 visual that uses columns from two fact tables.
+
+### Every table mixing two tables carries a measure
+
+Look at the tables and you will find a count in each: `Attempts`, `Defects
+Found`, `Decisions Made`. They are there to be read, but they are also load
+bearing, and removing one is a data correctness bug rather than a cosmetic
+change.
+
+A table of **columns alone**, drawn from a dimension and a fact, is a cross
+join. Power BI groups by the columns it was given and, with no measure to
+evaluate, keeps every combination rather than only the ones the relationships
+support. The approval queue shipped that way: it listed all eighteen questions
+against every outcome and every tier, including questions that had never
+failed, plus a blank question id for the combinations belonging to no question
+at all. Seventy-six rows where thirteen were real, and each one looked exactly
+like a genuine proposed fix.
+
+The relationships were never wrong. Adding any measure over the fact table
+fixes it, because a row whose measures are all blank is dropped, and a fact
+measure is blank precisely where no fact row exists. A measure over the
+*dimension* does not work: it is non-blank for every row of the cross join, so
+the visual stays wrong and now looks deliberate. `test_agentevals_report.py`
+checks both halves of that rule.
 
 ## Page two, Review & Approve Fixes
 
@@ -69,15 +92,67 @@ visual that uses columns from two fact tables.
 | Two input slicers, and a button | The decision, the note, and submit |
 | Defects by fix tier | Tier 1 is safe to apply, tier 3 is a human judgement |
 
+The queue carries a **Writes To** column, sitting ahead of the instruction
+rather than behind it, because the instruction is wide enough to push anything
+after it out of view and a reviewer should not have to scroll to find out what
+they are changing. A semantic model instruction lands in exactly one property,
+`cultures['en-US'].linguisticMetadata.content.CustomInstructions`, which is the
+**AI instructions** box under Prep data for AI. It is not the model
+description, and it is never a table, a column or a measure: a fix needing one
+of those is tier 2 and leaves the automated loop for a person.
+
+`Writes To` is blank for anything not in the decision queue, and that blank is
+what makes the table a queue rather than a log. `In Decision Queue` is 1 only
+when the **most recent run** found the defect and nobody has yet decided on
+that exact sentence for that question. Both halves matter:
+
+- **Latest run only.** The loop re-detects everything still wrong on every
+  run, so a defect from an older run is history, not work. Without this the
+  same question appears once per run it ever failed in, each row offering the
+  same fix, and the reviewer cannot tell which one is current.
+- **Not already decided.** Once a sentence has been approved or rejected for a
+  question, it is no longer awaiting a decision, and leaving it in the queue
+  invites a second write of a line that is already there.
+
 The input slicers have **no data column bound**. With one they would filter the
 page; without one they are input controls, which is what a task flow needs.
 
+## Page three, Same Fix, Several Questions
+
+| Tile | Reads |
+| --- | --- |
+| Five KPI cards | `Questions Sharing This Fix`, `Awaiting Apply`, `Covered By Another Approval`, `Instructions Written`, `Already Present` |
+| **Questions proposing the same sentence** | The group: one sentence, every question it was proposed for |
+| Two input slicers, and a button | The decision, the note, and submit |
+| **What has already been decided** | Who has decided what, for the questions in view |
+
+The harness proposes fixes from a small library, so one wrong behaviour usually
+appears as the same sentence against four or five questions at once. Approving
+them one at a time on page two is five clicks that all mean the same thing, and
+four of the five would queue a write that changes nothing, because the first
+one already added the line.
+
+This page records the decision once. Approve a question on page two first, then
+come here: `approve_similar` writes an approval row for every other question
+carrying that sentence, each marked `covered_by` the approval that carries the
+change, together with a remediation row that has **no applied time**. Every
+question has a real decision against it, the approvals are closed so nothing
+queues a second write, and `Already Present` counts them separately from
+`Instructions Written` so the report never claims a fix it did not make.
+
+Choosing not to approve them is a valid answer. They stay in the queue and can
+be decided one at a time.
+
+The two writeback buttons are on separate pages on purpose. They take the same
+three parameters and mean very different things, and side by side, approving a
+group when you meant to approve one question is a slip rather than a decision.
+
 ---
 
-## The manual step: bind the button
+## The manual step: bind the buttons
 
-The report ships with the button in place and the action unbound, because the
-binding names a workspace, a function set and a function by id. Those are
+The report ships with the buttons in place and their actions unbound, because
+the binding names a workspace, a function set and a function by id. Those are
 tenant facts, and this repo keeps them out of source control.
 
 In the Power BI service, edit the report, go to **Review & Approve Fixes**,
@@ -93,6 +168,11 @@ select the button under *Then submit your decision:*, and in **Format button**
 | `questionId` | **fx** > Format style `Field value` > `Questions` > **Selected Question ID** |
 | `decision` | the **Decision (approved or rejected)** input slicer |
 | `note` | the **Note for the record** input slicer |
+
+Then do the same on **Same Fix, Several Questions**, for the button under *Then
+approve the rest of the group:*, with the same parameters and
+`approve_similar` as the data function. Bind its `decision` and `note` to
+**that page's** input slicers, not page two's.
 
 Turn **Auto clear** on, so the note does not carry over to the next decision.
 
@@ -152,10 +232,10 @@ across, printing
 kept the existing data function binding (approve_remediation)
 ```
 
-when it finds one. That works because the visual ids are deterministic, so the
-slicers the binding names are still there under the same ids after a rebuild.
-The builder checks that rather than assuming it, and says so if a referenced
-slicer has gone.
+when it finds one, once per bound button. That works because the visual ids are
+deterministic, so the slicers the binding names are still there under the same
+ids after a rebuild. The builder checks that rather than assuming it, and says
+so if a referenced slicer has gone.
 
 This was found the hard way. The first version of the carry-over looked for
 the binding under `objects`; it lives under `visualContainerObjects`, so it

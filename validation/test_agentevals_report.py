@@ -168,6 +168,95 @@ class TestNoVisualAsksForAnImpossibleJoin(unittest.TestCase):
         self.assertGreater(len(self.FACT_TABLES), 1)
 
 
+class TestNoVisualCrossJoinsTwoTables(unittest.TestCase):
+    """A visual mixing columns from two tables needs a measure to prune it.
+
+    This is the bug that made the approval queue list fixes that did not
+    exist. A table of columns alone is a cross join: Power BI groups by the
+    columns it was given and, with nothing to evaluate, keeps every
+    combination rather than only the ones the relationships support. The
+    queue showed all eighteen questions against every outcome and every
+    tier, including questions that had never failed, plus a blank question
+    id for the combinations belonging to no question at all. Seventy-six
+    rows where thirteen were real.
+
+    The relationships were never wrong. Adding any measure restores the
+    normal behaviour, because rows where every measure is blank are dropped,
+    and a fact measure is blank exactly where no fact row exists.
+
+    So each such visual carries a measure over its fact table, chosen to be
+    worth reading rather than a hidden guard: the row count is what makes a
+    recurring defect look different from a one-off. Losing it is a data
+    correctness bug, not a cosmetic one, which is why this is a test.
+    """
+
+    FACT_TABLES = {rel.from_table for rel in model.RELATIONSHIPS}
+
+    @staticmethod
+    def _entities(payload, kind: str) -> set[str]:
+        found: set[str] = set()
+
+        def walk(node) -> None:
+            if isinstance(node, dict):
+                inner = node.get(kind)
+                if isinstance(inner, dict) and "Property" in inner:
+                    entity = (inner.get("Expression", {})
+                                   .get("SourceRef", {}).get("Entity"))
+                    if entity:
+                        found.add(entity)
+                for value in node.values():
+                    walk(value)
+            elif isinstance(node, list):
+                for value in node:
+                    walk(value)
+
+        walk(payload)
+        return found
+
+    def test_every_multi_table_visual_has_a_measure(self) -> None:
+        for path, payload in visual_parts().items():
+            columns = self._entities(payload, "Column")
+            if len(columns) < 2:
+                continue
+            with self.subTest(visual=path, tables=sorted(columns)):
+                self.assertTrue(
+                    self._entities(payload, "Measure"),
+                    f"columns from {sorted(columns)} and no measure. This "
+                    "renders as a cross join of every combination, which "
+                    "looks like real data and is not.",
+                )
+
+    def test_the_pruning_measure_is_over_the_fact_table(self) -> None:
+        """A measure over the dimension prunes nothing.
+
+        It is non-blank for every row of the cross join, so the visual is
+        just as wrong and now looks deliberate.
+        """
+        for path, payload in visual_parts().items():
+            columns = self._entities(payload, "Column")
+            if len(columns) < 2:
+                continue
+            facts = columns & self.FACT_TABLES
+            measures = self._entities(payload, "Measure")
+            with self.subTest(visual=path):
+                self.assertTrue(
+                    measures & facts,
+                    f"measures {sorted(measures)} are not over any of the "
+                    f"fact tables {sorted(facts)} whose columns this visual "
+                    "shows, so they cannot prune the join.",
+                )
+
+    def test_this_would_have_caught_the_original_bug(self) -> None:
+        """Guard the guard, against the version of the queue that shipped."""
+        broken = {"visual": {"query": {"queryState": {"Values": {"projections": [
+            {"field": report.column("Questions", "Question ID")},
+            {"field": report.column("Defects", "Defect Outcome")},
+        ]}}}}}
+        self.assertEqual(
+            self._entities(broken, "Column"), {"Questions", "Defects"})
+        self.assertFalse(self._entities(broken, "Measure"))
+
+
 class TestLayoutMatchesTheContosoGrid(unittest.TestCase):
     """The two reports should look like one product, not two.
 
@@ -305,6 +394,73 @@ class TestTheWritebackPage(unittest.TestCase):
         for name in ("Approved", "Awaiting Apply", "Verified Fix %"):
             with self.subTest(measure=name):
                 self.assertIn(name, text)
+
+
+class TestTheSimilarFixesPage(unittest.TestCase):
+    """One wrong behaviour, several questions, one decision.
+
+    The harness proposes from a small library, so the same sentence turns up
+    against four or five questions at once. Approving them separately would
+    queue the same write four times and produce four identical lines.
+    """
+
+    def page_three(self) -> list[dict]:
+        name = report.P3_NAME
+        return [json.loads(text) for path, text in parts().items()
+                if path.startswith(f"definition/pages/{name}/visuals/")]
+
+    def test_the_page_exists_in_the_order(self) -> None:
+        order = json.loads(parts()["definition/pages/pages.json"])["pageOrder"]
+        self.assertIn(report.P3_NAME, order)
+
+    def test_it_shows_the_sentence_the_group_shares(self) -> None:
+        """Approving a group without reading the sentence is a rubber stamp."""
+        text = json.dumps(self.page_three())
+        self.assertIn("Proposed Instruction", text)
+        self.assertIn("Questions Sharing This Fix", text)
+
+    def test_it_has_its_own_button_and_its_own_inputs(self) -> None:
+        buttons = [v for v in self.page_three()
+                   if v["visual"]["visualType"] == "actionButton"]
+        inputs = [v for v in self.page_three()
+                  if v["visual"]["visualType"] == "textSlicer"]
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(len(inputs), 2)
+
+    def test_its_slicer_ids_are_stable(self) -> None:
+        """The binding names them by visual id, so the ids cannot drift."""
+        names = {json.loads(text)["name"] for path, text in parts().items()
+                 if path.endswith("visual.json")}
+        for key in ("decision", "note"):
+            with self.subTest(slicer=key):
+                self.assertIn(report.vid(f"{report.P3}/input/{key}"), names)
+
+    def test_the_two_writeback_buttons_are_not_on_the_same_page(self) -> None:
+        """They take the same parameters and mean very different things.
+
+        Side by side, approving a group when you meant to approve one
+        question is a slip rather than a decision.
+        """
+        for name in (report.P2_NAME, report.P3_NAME):
+            buttons = [
+                json.loads(text) for path, text in parts().items()
+                if path.startswith(f"definition/pages/{name}/visuals/")
+                and json.loads(text)["visual"]["visualType"] == "actionButton"
+            ]
+            with self.subTest(page=name):
+                self.assertEqual(len(buttons), 1)
+
+    def test_it_separates_written_from_already_present(self) -> None:
+        """A covered approval is not a fix, and must not be counted as one."""
+        text = json.dumps(self.page_three())
+        for name in ("Instructions Written", "Already Present",
+                     "Covered By Another Approval"):
+            with self.subTest(measure=name):
+                self.assertIn(name, text)
+
+    def test_it_says_that_not_approving_is_allowed(self) -> None:
+        text = json.dumps(self.page_three())
+        self.assertIn("Choosing not to approve them is a valid answer", text)
 
 
 class TestTheApprovalButtonHasSomethingToBindTo(unittest.TestCase):
@@ -455,6 +611,49 @@ class TestTheButtonBindingSurvivesARebuild(unittest.TestCase):
         for key in ("decision", "note"):
             with self.subTest(slicer=key):
                 self.assertIn(report.vid(f"{report.P2}/input/{key}"), names)
+
+    def test_every_bound_button_is_carried_not_just_the_first(self) -> None:
+        """There are two writeback buttons now.
+
+        A carry-over that stopped at the first would keep the approval
+        binding and silently drop the bulk approval one, which is the same
+        failure this function exists to prevent, on a different button.
+        """
+        built = parts()
+        buttons = [
+            path for path, text in built.items()
+            if path.endswith("visual.json")
+            and json.loads(text)["visual"]["visualType"] == "actionButton"
+        ]
+        self.assertEqual(len(buttons), 2, "the report should have two buttons")
+
+        for path, function in zip(sorted(buttons),
+                                  ("approve_remediation", "approve_similar")):
+            payload = json.loads(built[path])
+            payload["visual"].setdefault("visualContainerObjects", {})[
+                "visualLink"] = [{
+                    "properties": {
+                        "type": {"expr": {"Literal": {"Value": "'DataFunction'"}}},
+                        "dataFunction": {"metadata": {"dataFunction": {
+                            "name": function,
+                            "parameters": [
+                                {"name": "questionId", "type": "ValueParameter"},
+                            ],
+                        }}},
+                    }
+                }]
+            built[path] = json.dumps(payload, indent=2)
+
+        fresh = parts()
+        report.carry_over_button_action(fresh, built)
+        rebuilt = json.dumps([
+            json.loads(text) for path, text in fresh.items()
+            if path.endswith("visual.json")
+            and json.loads(text)["visual"]["visualType"] == "actionButton"
+        ])
+        for function in ("approve_remediation", "approve_similar"):
+            with self.subTest(function=function):
+                self.assertIn(function, rebuilt)
 
 
 class TestGeneratedPartsAreComplete(unittest.TestCase):

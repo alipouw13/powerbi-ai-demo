@@ -132,6 +132,17 @@ BEGIN
         approver_oid         varchar(64)      NOT NULL,
         source               varchar(16)      NOT NULL,  -- 'report' | 'card' | 'cli'
         note                 nvarchar(max)    NULL,
+        -- Set when this decision was made as part of a group: the same sentence
+        -- was proposed for several questions and one approval carries the change
+        -- for all of them.
+        --
+        -- The distinction matters because approving the same instruction four
+        -- times does not mean writing it four times. It would produce four
+        -- identical lines in the model, four remediation runs, and four chances
+        -- for one of them to fail halfway. A covered approval is a real decision
+        -- by a real person about a real question; it just does not queue a
+        -- second copy of a change that is already being made.
+        covered_by           uniqueidentifier NULL,
         -- Stamped by the mirror pipeline. An approval with a null mirrored_ts and
         -- an old approved_ts never reached the eventhouse, so the rule never
         -- fired. That is a query, rather than a mystery.
@@ -147,6 +158,13 @@ BEGIN
     -- Mirrored back from the eventhouse by the pipeline, because the remediation
     -- notebook still writes there. Kept here so open_approvals can be a view and
     -- the report can show status without crossing stores.
+    --
+    -- applied_ts carries one more fact than its name suggests. A row with
+    -- persisted = 1 and a null applied_ts is an approval that was satisfied
+    -- without writing anything, because the sentence was already in the model or
+    -- the agent. That is a real outcome and it is not a change, so the report
+    -- shows it as "already present" rather than counting it as a fix this run
+    -- made.
     CREATE TABLE dbo.remediations (
         remediation_id     uniqueidentifier NOT NULL PRIMARY KEY,
         recorded_ts        datetime2(3)     NOT NULL,
@@ -164,6 +182,10 @@ BEGIN
         verified_run_id    uniqueidentifier NULL
     );
 END;
+GO
+
+IF COL_LENGTH('dbo.approvals', 'covered_by') IS NULL
+    ALTER TABLE dbo.approvals ADD covered_by uniqueidentifier NULL;
 GO
 
 IF OBJECT_ID('dbo.open_approvals', 'V') IS NOT NULL
@@ -208,16 +230,65 @@ SELECT
         WHEN d.decision IS NULL           THEN 'awaiting approval'
         WHEN d.decision = 'rejected'      THEN 'rejected'
         WHEN rm.approval_id IS NULL       THEN 'approved, not yet applied'
+        WHEN rm.applied_ts IS NULL        THEN 'already present, nothing to write'
         WHEN rm.verified = 1              THEN 'applied and verified'
         ELSE 'applied, not yet verified'
     END                                             AS [Status],
-    d.approved_by                                   AS [Approved by]
+    d.approved_by                                   AS [Approved by],
+    d.covered_by                                    AS [Covered by]
 FROM latest AS l
 JOIN dbo.questions AS q ON q.question_id = l.question_id
 LEFT JOIN decided AS d ON d.question_id = l.question_id AND d.rn = 1
 LEFT JOIN dbo.remediations AS rm
        ON rm.approval_id = d.approval_id AND rm.persisted = 1
 WHERE l.rn = 1;
+GO
+
+-- Questions whose latest defect proposes the identical sentence.
+--
+-- The harness proposes fixes from a small library, so one wrong behaviour
+-- usually shows up as the same instruction against four or five questions at
+-- once. Approving them one at a time is five clicks that all mean the same
+-- thing, and four of the five would queue a write that changes nothing
+-- because the first one already added the line.
+--
+-- The grouping key is the instruction plus its target, because the same
+-- sentence aimed at the model and at the agent are two different changes.
+IF OBJECT_ID('dbo.similar_fixes', 'V') IS NOT NULL
+    DROP VIEW dbo.similar_fixes;
+GO
+CREATE VIEW dbo.similar_fixes AS
+WITH latest AS (
+    SELECT d.*, ROW_NUMBER() OVER (
+        PARTITION BY d.question_id ORDER BY r.run_ts DESC) AS rn
+    FROM dbo.defects AS d
+    JOIN dbo.runs AS r ON r.run_id = d.run_id
+), open_defects AS (
+    SELECT
+        l.question_id,
+        l.instruction_target,
+        l.proposed_instruction,
+        l.tier,
+        l.auto_appliable,
+        CONVERT(char(64), HASHBYTES('SHA2_256',
+            CONVERT(nvarchar(max), l.instruction_target) + N'|'
+            + LTRIM(RTRIM(l.proposed_instruction))), 2) AS fix_group
+    FROM latest AS l
+    WHERE l.rn = 1
+      AND l.auto_appliable = 1
+      AND LTRIM(RTRIM(l.proposed_instruction)) <> ''
+)
+SELECT
+    o.question_id                                   AS [Question],
+    q.prompt                                        AS [Asked],
+    o.instruction_target                            AS [Target],
+    o.proposed_instruction                          AS [Add this instruction],
+    o.fix_group                                     AS [Fix Group],
+    COUNT(*) OVER (PARTITION BY o.fix_group)        AS [Questions With This Fix],
+    rq.[Status]                                     AS [Status]
+FROM open_defects AS o
+JOIN dbo.questions AS q ON q.question_id = o.question_id
+JOIN dbo.remediation_queue AS rq ON rq.[Question] = o.question_id;
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_answers_question' AND object_id = OBJECT_ID('dbo.answers'))

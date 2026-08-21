@@ -8,7 +8,7 @@
 // that nothing can sum a per-run score across runs.
 //
 // Every measure has a description. Copilot reads the first 200
-// characters, so the business meaning comes first. 36 measures.
+// characters, so the business meaning comes first. 42 measures.
 
 // -------------------------------------------------------------------------
 // Score
@@ -226,6 +226,85 @@ RETURN
 Auto Appliable Defects =
 CALCULATE ( [Defects Found], 'Defects'[Auto Appliable] = TRUE () )
 
+// Description: How many questions the same proposed sentence was written
+// for. The harness proposes from a small library, so one wrong behaviour
+// usually shows up against several questions at once, and those are one
+// decision rather than several. Blank unless a single sentence is in
+// context.
+Questions Sharing This Fix =
+VAR Sentence = SELECTEDVALUE ( 'Defects'[Proposed Instruction] )
+VAR Target = SELECTEDVALUE ( 'Defects'[Instruction Target] )
+RETURN
+    IF (
+        NOT ISBLANK ( Sentence ),
+        CALCULATE (
+            DISTINCTCOUNT ( 'Defects'[Question ID] ),
+            REMOVEFILTERS ( 'Questions' ),
+            REMOVEFILTERS ( 'Defects' ),
+            'Defects'[Proposed Instruction] = Sentence,
+            'Defects'[Instruction Target] = Target
+        )
+    )
+
+// Description: 1 when this defect is still waiting on a person: the most
+// recent run found it, and nobody has decided on that exact sentence for
+// that question yet. Blank otherwise, which is what keeps decided and
+// superseded defects out of the approval queue. A defect from an older run
+// is history, not work: the loop re-detects everything that is still wrong
+// on every run.
+In Decision Queue =
+VAR LatestRunID =
+    MAXX (
+        TOPN (
+            1,
+            'Evaluation Runs',
+            'Evaluation Runs'[Run Time], DESC,
+            'Evaluation Runs'[Run ID], ASC
+        ),
+        'Evaluation Runs'[Run ID]
+    )
+VAR FoundNow =
+    CALCULATE ( [Defects Found], 'Evaluation Runs'[Run ID] = LatestRunID )
+VAR Sentence = SELECTEDVALUE ( 'Defects'[Proposed Instruction] )
+VAR AlreadyDecided =
+    IF (
+        NOT ISBLANK ( Sentence ) && Sentence <> "",
+        CALCULATE (
+            COUNTROWS ( 'Approvals' ),
+            'Approvals'[Approved Instruction] = Sentence
+        )
+    )
+RETURN
+    IF ( NOT ISBLANK ( FoundNow ) && ISBLANK ( AlreadyDecided ), 1 )
+
+// Description: Where an approved fix actually lands, in the words a reviewer
+// needs before deciding. A semantic model instruction is written to one
+// property, cultures['en-US'].linguisticMetadata.content.CustomInstructions,
+// which is the AI instructions box under Prep data for AI. It is not the
+// model description, and it is never a table, a column or a measure:
+// anything needing those is tier 2 and leaves the automated loop for a
+// person. Blank unless the defect is still in the decision queue, which is
+// also what stops the approval table showing question and defect
+// combinations that never happened.
+Writes To =
+VAR Sentence = SELECTEDVALUE ( 'Defects'[Proposed Instruction] )
+VAR Target = SELECTEDVALUE ( 'Defects'[Instruction Target] )
+VAR Manual =
+    "Nothing is written. A person makes this change - see Fix Target."
+RETURN
+    IF (
+        [In Decision Queue] = 1,
+        SWITCH (
+            TRUE (),
+            ISBLANK ( Sentence ) || Sentence = "", Manual,
+            Target = "semantic_model",
+                "Semantic model -> AI instructions (not a table or column)",
+            Target = "data_agent",
+                "Data agent -> AI instructions (published after writing)",
+            Manual
+        )
+    )
+
 // -------------------------------------------------------------------------
 // Approvals
 // -------------------------------------------------------------------------
@@ -274,14 +353,44 @@ RETURN
         )
     )
 
+// Description: Approvals made as part of a group, where another approval
+// carries the change. They are real decisions about real questions; they
+// simply queue no second copy of a sentence that is already being written
+// once.
+Covered By Another Approval =
+CALCULATE ( [Approved], NOT ISBLANK ( 'Approvals'[Covered By Approval] ) )
+
 // -------------------------------------------------------------------------
 // Remediation
 // -------------------------------------------------------------------------
 
-// Description: Approved instructions that were really written to a semantic
-// model or data agent. Rehearsals are excluded.
+// Description: Approved instructions the loop has finished with: written, or
+// found to be there already. Rehearsals are excluded. This is what closes an
+// approval, so it is the denominator for whether the loop kept up.
 Remediations Applied =
 CALCULATE ( COUNTROWS ( 'Remediations' ), 'Remediations'[Persisted] = TRUE () )
+
+// Description: Remediations that actually changed a semantic model or a data
+// agent. Smaller than Remediations Applied whenever a sentence was already
+// there or was covered by another approval, and the difference is not a
+// failure: it is the loop declining to write the same line twice.
+Instructions Written =
+CALCULATE (
+    COUNTROWS ( 'Remediations' ),
+    'Remediations'[Persisted] = TRUE (),
+    NOT ISBLANK ( 'Remediations'[Applied Time] )
+)
+
+// Description: Approvals that needed no write, because the sentence was
+// already in the model or the agent, or because another approval in the same
+// group carries it. A high number next to a low Instructions Written is the
+// loop being efficient rather than stuck.
+Already Present =
+CALCULATE (
+    COUNTROWS ( 'Remediations' ),
+    'Remediations'[Persisted] = TRUE (),
+    ISBLANK ( 'Remediations'[Applied Time] )
+)
 
 // Description: Applied fixes that a later run re-asked and confirmed. This
 // is the only measure in the model that says a fix worked.
@@ -292,8 +401,9 @@ CALCULATE (
     'Remediations'[Verified] = TRUE ()
 )
 
-// Description: Share of applied fixes that a later run proved worked. A low
-// value means the loop is changing things without evidence that it helped.
+// Description: Share of finished remediations that a later run proved
+// worked. A low value means the loop is changing things without evidence
+// that it helped.
 Verified Fix % =
 DIVIDE ( [Remediations Verified], [Remediations Applied] )
 
