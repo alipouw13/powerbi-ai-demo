@@ -7,6 +7,19 @@ All three features here save to the **semantic model**, not to the report. Autho
 from the `Prep data for AI` button on the Home ribbon in Power BI Desktop, or on the
 semantic model ribbon in the Power BI service.
 
+The AI instructions box writes one property, and reads the same one back:
+
+```
+model > cultures['en-US'] > linguisticMetadata > content > CustomInstructions
+```
+
+Worth knowing, because it is the only copy. If the box ever looks empty, read that
+property before assuming the text is gone — see
+[when the box looks empty](../docs/04-prep-for-ai.md#if-the-ai-instructions-box-looks-empty).
+It is also the property the remediation loop appends approved instructions to, under the
+`## Automated remediation` heading, so text below that heading was added by the loop and
+approved by a person rather than typed here.
+
 Docs: https://learn.microsoft.com/power-bi/create-reports/copilot-prepare-data-ai
 
 ---

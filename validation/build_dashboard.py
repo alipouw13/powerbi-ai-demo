@@ -125,12 +125,16 @@ REMEDIATION_QUEUE = """eval_defects
 | join kind=leftouter (
     eval_remediations
     | where persisted == true
-    | summarize arg_max(recorded_ts, verified) by approval_id
+    | summarize arg_max(recorded_ts, verified, applied_ts) by approval_id
   ) on approval_id
 | extend ['Status'] = case(
       isempty(decision), "awaiting approval",
       decision == "rejected", "rejected",
       isempty(approval_id1), "approved, not yet applied",
+      // Satisfied without writing anything: the sentence was already there,
+      // or another approval in the same group carries it. Not a change, and
+      // counting it as one would show a fix that never happened.
+      isnull(applied_ts), "already present, nothing to write",
       verified, "applied and verified",
       "applied, not yet verified")
 | project ['Question']=question_id,

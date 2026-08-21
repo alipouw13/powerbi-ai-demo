@@ -75,6 +75,7 @@ def build_cells() -> list[dict]:
         "source": (
             f'WORKSPACE_ID = "{WORKSPACE_ID}"\n'
             f'DATA_AGENT_ID = "{DATA_AGENT_ID}"\n'
+            'DATA_AGENT_NAME = ""  # the item\'s display name, passed to the agent path\n'
             f'SEMANTIC_MODEL_NAME = "{SEMANTIC_MODEL_NAME}"\n'
             f'LAKEHOUSE_NAME = "{LAKEHOUSE_NAME}"\n'
             f'KUSTO_URI = "{KUSTO_URI}"\n'
@@ -82,7 +83,11 @@ def build_cells() -> list[dict]:
             "\n"
             "# Which defect to act on. Activator passes these when a human approves.\n"
             'QUESTION_ID = ""  # for example "Q10". Empty means every approved defect.\n'
-            'APPROVED_BY = ""  # required. No anonymous changes to a governed model.\n'
+            "\n"
+            "# Required, and the run refuses without it: a governed model does not\n"
+            "# take anonymous changes. Activator passes it. Running this by hand,\n"
+            "# put your own sign-in here, for example \"you@contoso.com\".\n"
+            'APPROVED_BY = ""\n'
             "\n"
             "# DRY_RUN prints the diff and writes nothing. Leave it true until you\n"
             "# have read the diff at least once.\n"
@@ -119,7 +124,12 @@ def build_cells() -> list[dict]:
         "The model's AI instructions live in the semantic model at\n"
         "`model.cultures[en-US].linguisticMetadata.content.CustomInstructions`, which\n"
         "is what Prep data for AI (preview) writes. Reached over XMLA with sempy,\n"
-        "because `getDefinition` is blocked for this item."
+        "because `getDefinition` is blocked for this item.\n"
+        "\n"
+        "That pane is a view over this one property. It is not a store of its own,\n"
+        "and there is no second copy anywhere. So this cell prints the path, the\n"
+        "length and the last few lines: if the pane ever looks empty, the output\n"
+        "here is the answer, and it does not depend on the pane loading."
     ))
     cells.append(code(READ_CELL))
 
@@ -136,7 +146,21 @@ def build_cells() -> list[dict]:
         "\n"
         "The backup is written before the change, not after, and it is the full\n"
         "model script rather than just the instructions. Restoring one property is\n"
-        "not much use if the round trip damaged something else."
+        "not much use if the round trip damaged something else.\n"
+        "\n"
+        "Changing one string means writing the whole model back, and TMSL is\n"
+        "explicit that an omitted object is a deleted object. So there are three\n"
+        "checks, not one:\n"
+        "\n"
+        "1. **Before the write**, the payload is counted against a fresh read of\n"
+        "   the server. A payload with fewer tables, measures, roles or Q&A terms\n"
+        "   than the model has would delete the difference, so it is refused.\n"
+        "2. **After the write**, the instruction is read back and `lastUpdate` is\n"
+        "   checked, because a read back can be served from this session's own\n"
+        "   copy and show a value that never reached the server.\n"
+        "3. **After the write**, the census is compared again. The instruction\n"
+        "   reads back perfectly in exactly the case that matters, so counting\n"
+        "   what is left is the only check that can tell the two apart."
     ))
     cells.append(code(APPLY_CELL))
 
@@ -153,8 +177,14 @@ def build_cells() -> list[dict]:
         "## 8. Hand off the agent-targeted work\n"
         "\n"
         "A reference run rather than `%run`, so `agent_remediate_agent` gets its\n"
-        "own session and the SDK it installs cannot affect this one. Skipped\n"
-        "entirely when there is no agent-targeted work, which is most runs."
+        "own session and a failure there cannot take this one down. Skipped\n"
+        "entirely when there is no agent-targeted work, which is most runs.\n"
+        "\n"
+        "A failure here does not fail this run, because the semantic model work\n"
+        "above has already landed. It is printed loudly instead: a quiet\n"
+        "handoff failure is indistinguishable from a working one, which is how\n"
+        "approved agent instructions once went unapplied for days while the\n"
+        "report showed the loop as healthy."
     ))
     cells.append(code(HANDOFF_CELL))
 
@@ -170,7 +200,9 @@ def build_cells() -> list[dict]:
     return cells
 
 
-HANDOFF_CELL = '''if not agent_pending:
+HANDOFF_CELL = '''agent_handoff_failed = ""
+
+if not agent_pending:
     print("no agent-targeted approvals, nothing to hand off")
 else:
     approval_ids = ",".join(r["approval_id"] for r in agent_pending)
@@ -179,6 +211,11 @@ else:
     # A failure here must not fail this run. The model-targeted work above has
     # already been applied and recorded, and reporting the whole run as failed
     # would send somebody looking for a semantic model change that did land.
+    #
+    # It must not be quiet either. This used to print one line among fifty and
+    # carry on, so an agent path that raised on every run looked exactly like
+    # an agent path that worked, and two approved instructions sat unapplied
+    # for days while the report said the loop was healthy.
     try:
         result = notebookutils.notebook.run(
             "agent_remediate_agent",
@@ -186,13 +223,24 @@ else:
             {
                 "APPROVAL_IDS": approval_ids,
                 "APPROVED_BY": APPROVED_BY,
+                "DATA_AGENT_NAME": DATA_AGENT_NAME,
                 "DRY_RUN": str(DRY_RUN).lower(),
             },
         )
         print(f"agent_remediate_agent returned: {result}")
     except Exception as exc:  # noqa: BLE001
-        print(f"agent remediation failed: {exc}")
+        agent_handoff_failed = str(exc)
+        print("=" * 72)
+        print("AGENT REMEDIATION FAILED. The semantic model work above is")
+        print("unaffected and is recorded. Nothing reached the data agent.")
+        print(f"  {agent_handoff_failed}")
+        print()
         print("The approvals stay open, so the next run picks them up again.")
+        print("Open agent_remediate_agent and run it by hand to see the error")
+        print("in full. Until it succeeds, the agent-targeted questions will")
+        print("keep failing the evaluation however many times they are")
+        print("approved.")
+        print("=" * 72)
 '''
 
 
@@ -235,7 +283,18 @@ def write_kusto(df, table):
 if not APPROVED_BY.strip():
     raise ValueError(
         "APPROVED_BY is required. A governed semantic model does not take "
-        "anonymous changes."
+        "anonymous changes, so this refuses rather than guessing who you "
+        "are.\\n"
+        "\\n"
+        "Running this by hand: set APPROVED_BY in the parameters cell above "
+        "to your own sign-in, for example \\"you@contoso.com\\", and run "
+        "again. While you are there, DRY_RUN is True by default and prints "
+        "the diff without writing anything. Read the diff once, then set it "
+        "to False to apply.\\n"
+        "\\n"
+        "Seeing this from an automated run: the Activator rule passes "
+        "APPROVED_BY itself, so an empty one means the rule has lost its "
+        "parameter. That is the bug, not this."
     )
 
 # The eventhouse is the only approval store, and nothing in it is mutated.
@@ -243,6 +302,11 @@ if not APPROVED_BY.strip():
 # same approval_id. The same expression is used by approve.py, the Activator
 # rule and the dashboard, so none of them can disagree about what is
 # outstanding.
+#
+# A bulk approval closes itself. When somebody approves the same sentence for
+# four questions at once, the approval function writes one remediation row per
+# covered approval and the mirror pushes those to the eventhouse, so this join
+# has already excluded them and no second identical write is ever queued.
 open_approvals_kql = """
 eval_approvals
 | where decision == "approved"
@@ -286,7 +350,7 @@ print(f"running as: {executing_identity}")
 #
 # Only model-targeted instructions change the DAX. Agent-targeted ones change
 # how an answer reads, which is a real fix for a real defect class, but it
-# needs the data agent SDK and therefore a pip install. That is confined to
+# writes to a different governed item. That is confined to
 # agent_remediate_agent, reached below with a reference run so it gets its own
 # session and cannot take this path down with it.
 agent_pending = [r for r in pending if r["instruction_target"] == TARGET_DATA_AGENT]
@@ -321,6 +385,32 @@ print(f"culture           : {culture['name']}")
 print(f"current length    : {len(current)} chars")
 print(f"already remediated: {REMEDIATION_HEADING in current}")
 print(f"lastUpdate before : {last_update_before}")
+
+# Everything this run must leave exactly as it found it. Compared again after
+# the write, because "the instruction read back" is not the same claim as
+# "the model survived", and only the first of those was ever checked.
+before_census = model_census(model_script)
+print(f"census before     : {before_census}")
+
+# Where the text actually is, spelled out. Prep data for AI (preview) is a
+# pane over this one property, not a store of its own. When that pane comes
+# up empty the first question is always whether a remediation deleted the
+# instructions, and the only way to answer it without the pane is to know the
+# path and read it. This run has just read it, so the answer is above.
+print()
+print("Prep data for AI (preview) shows this property and nothing else:")
+print(f"  {SEMANTIC_MODEL_NAME} > model > cultures['{culture['name']}']")
+print("    > linguisticMetadata > content > CustomInstructions")
+print()
+lines = [line for line in current.splitlines() if line.strip()]
+if lines:
+    print(f"It holds {len(lines)} non-empty line(s). The last three:")
+    for line in lines[-3:]:
+        print(f"  {line[:110]}")
+else:
+    print("It is empty. If it should not be, restore the newest file under")
+    print("Files/model_backups before approving anything else: a remediation")
+    print("applied now would append its sentence to nothing.")
 '''
 
 
@@ -346,6 +436,12 @@ for row in pending:
 print()
 print(f"length {len(current)} -> {len(proposed)}  ({len(applied_now)} line(s) to add, "
       f"{len(already_present)} already satisfied)")
+
+# Remediation appends and never rewrites, so this holds by construction and is
+# checked anyway. It is checked here rather than in the cell that writes so a
+# dry run proves it too, and so the run stops before it has taken a backup of
+# a model it was about to damage.
+assert_append_only(current, proposed)
 
 if applied_now:
     print()
@@ -398,10 +494,28 @@ else:
             "Re-run this notebook; the approval is still open."
         )
 
+    # Completeness, which the concurrency guard does not cover. `guard` is an
+    # independent read of what the server holds right now; `model_script` is
+    # the payload about to replace it. TMSL deletes whatever the payload
+    # omits, so if the payload is the smaller of the two then sending it
+    # destroys the difference. Refusing here costs one comparison and is the
+    # difference between a failed remediation and a restore from backup.
+    missing = census_losses(model_census(guard), model_census(model_script))
+    if missing:
+        raise RuntimeError(
+            "refusing to write: the payload is missing objects the model "
+            "still has.\\n\\n"
+            + "\\n".join(f"  {name}: model has {was}, payload has {now}"
+                         for name, (was, now) in sorted(missing.items()))
+            + "\\n\\n"
+            "createOrReplace deletes anything the payload leaves out, so this "
+            "write would remove them. Nothing was written."
+        )
+
     fabric.execute_tmsl(script=json.dumps(script), workspace=WORKSPACE_ID)
     print("execute_tmsl returned without error")
 
-    # Two checks, because the first one on its own is not evidence.
+    # Three checks, because none of the first two on its own is evidence.
     #
     # A content read back can be served from the session's own copy of the
     # model and will show the value we just set even if nothing reached the
@@ -437,7 +551,28 @@ else:
             "access, or run this notebook interactively as someone who has it. "
             "Do not treat this run as a successful remediation."
         )
-    print(f"persisted: {len(after)} chars, {len(verify['model']['tables'])} tables intact")
+
+    # The third check, and the one that would have caught the worst failure
+    # this notebook can cause. Writing the instruction means writing the whole
+    # model, and TMSL treats an omitted object as a deletion, so a bad
+    # snapshot removes tables, measures or Q&A synonyms while sending the
+    # instruction perfectly. Both checks above pass in that case. This one
+    # does not.
+    after_census = model_census(verify)
+    losses = census_losses(before_census, after_census)
+    if losses:
+        raise RuntimeError(
+            "the instruction was written but the model lost objects doing "
+            "it.\\n\\n"
+            + "\\n".join(f"  {name}: {was} -> {now}"
+                         for name, (was, now) in sorted(losses.items()))
+            + "\\n\\n"
+            f"Restore {backup_path} now. It was taken immediately before this "
+            "write and contains the whole model, not just the instructions."
+        )
+
+    print(f"persisted: {len(after)} chars, nothing lost")
+    print(f"census after      : {after_census}")
 '''
 
 
@@ -469,7 +604,7 @@ remediations_schema = StructType([
 ])
 
 
-def remediation_row(row, was_persisted):
+def remediation_row(row, was_persisted, wrote_something=True):
     return Row(
         remediation_id=str(uuid.uuid4()),
         # recorded_ts, not applied_ts, is the ordering key. A later
@@ -477,7 +612,11 @@ def remediation_row(row, was_persisted):
         # and if both rows carried the same applied_ts then arg_max would pick
         # between them arbitrarily and `verified` would flicker.
         recorded_ts=now,
-        applied_ts=now,
+        # Null when this run wrote nothing because the sentence was already in
+        # the model. That is what the column has always meant, and it is what
+        # lets the report separate "we changed the model" from "the model
+        # already said this" without a new column anywhere.
+        applied_ts=now if wrote_something else None,
         approval_id=row["approval_id"],
         question_id=row["question_id"],
         instruction_target=row["instruction_target"],
@@ -499,7 +638,7 @@ def remediation_row(row, was_persisted):
 # much as one this run added. Otherwise an approval applied by an earlier run,
 # or by a person editing the model directly, stays open forever.
 rows = [remediation_row(r, persisted) for r in applied_now]
-rows += [remediation_row(r, True) for r in already_present]
+rows += [remediation_row(r, True, wrote_something=False) for r in already_present]
 
 if rows and not DRY_RUN:
     remediations_df = spark.createDataFrame(rows, schema=remediations_schema)
@@ -512,6 +651,17 @@ elif rows:
     print(f"DRY_RUN, so {len(rows)} remediation(s) were not recorded")
 else:
     print("nothing recorded")
+
+if already_present:
+    print()
+    print("Nothing was written to the model for "
+          + ", ".join(sorted({r["question_id"] for r in already_present}))
+          + ". The approved sentence was already in the model's AI "
+          "instructions, so applying it again would have changed nothing and "
+          "would have added a duplicate line. Those approvals are closed "
+          "rather than left open, and they are recorded with no applied time "
+          "so the report shows them as already present rather than as a "
+          "change this run made.")
 '''
 
 
@@ -526,6 +676,12 @@ print("the defect belongs back with a human as tier 2.")
 print()
 if rows:
     print("questions to watch:", ", ".join(sorted({r["question_id"] for r in applied_now})))
+
+if agent_handoff_failed:
+    print()
+    print("Note that the agent-targeted approvals in this run did NOT reach the")
+    print("data agent. Re-running the evaluation will not improve them, because")
+    print("nothing was applied. Fix the handoff first.")
 '''
 
 

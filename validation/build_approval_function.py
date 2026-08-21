@@ -19,6 +19,19 @@ by the platform, so the identity is verified rather than asserted.
 `approved_by` and `created_by` are therefore **not parameters of these
 functions**, and cannot be.
 
+## Why approving a group is one decision and one change
+
+The harness proposes fixes from a small library, so one wrong behaviour
+usually appears as the same sentence against four or five questions at once.
+Approving them one at a time is five clicks that all mean the same thing, and
+four of the five would queue a write that changes nothing because the first
+one already added the line.
+
+`approve_similar` records the decision for every question in the group and
+marks the extra rows `covered_by` the approval that carries the change, with a
+remediation row that has no applied time. Every question has a real decision
+against it, and the model or the agent gets the sentence once.
+
 ## Why SQL rather than the eventhouse
 
 The first version of this file wrote to the eventhouse, which a user data
@@ -53,6 +66,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (  # noqa: E402
     FABRIC_API,
+    SQL_ALIAS,
     SQL_DATABASE_NAME,
     WORKSPACE_ID,
     require,
@@ -62,17 +76,21 @@ ROOT = Path(__file__).resolve().parent.parent
 FUNCTION_DIR = ROOT / "fabric" / "approve_remediation"
 ITEM_NAME = "Approve remediation"
 
-# The alias Fabric generates for the managed connection. Set once in the
-# portal under Manage connections. It is a connection name rather than an
-# identifier, so unlike a workspace id it is safe to commit.
-SQL_ALIAS = "agentevalsql"
+# SQL_ALIAS comes from config, defaulting to "agentevalsql".
+#
+# It is the alias of the managed connection, which the portal generates from
+# the data source's name when somebody adds it. There is no API to create that
+# connection or to rename it, so if a tenant generates something else, set
+# FABRIC_SQL_ALIAS and redeploy rather than fighting the portal. The default
+# is what the committed copy carries, so a plain checkout is unchanged.
 
 SCHEMA = (
     "https://developer.microsoft.com/json-schemas/fabric/item/"
     "userDataFunction/definition/1.1.0/schema.json"
 )
 
-FUNCTIONS = ("approve_remediation", "submit_feedback", "list_pending_remediations")
+FUNCTIONS = ("approve_remediation", "submit_feedback", "list_pending_remediations",
+             "list_similar_pending", "approve_similar")
 
 
 # --------------------------------------------------------------------------
@@ -91,6 +109,11 @@ Nothing here applies anything. These functions write rows. A pipeline mirrors
 approvals to the eventhouse, and an Activator rule starts the remediation
 notebook. If this function could start a notebook, anyone who could call it
 could run a job against a governed model.
+
+The one apparent exception is `approve_similar`, which writes a remediation
+row as well as an approval row. It is not applying anything either: the row
+records that this decision needs no write of its own, because the sentence is
+already being written once by the approval it names.
 """
 
 import uuid
@@ -104,6 +127,11 @@ APPROVED = "approved"
 REJECTED = "rejected"
 
 VERDICTS = ("wrong", "misleading", "right")
+
+# The one status string in dbo.remediation_queue that means nobody has
+# decided yet. Named here so a comparison against it cannot be spelled two
+# ways in two functions.
+AWAITING = "awaiting approval"
 
 # Where an instruction takes effect. Agent instructions are applied after the
 # query has run, so they change how an answer reads and nothing else.
@@ -155,6 +183,61 @@ def _question(value):
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+def _latest_defect(cursor, question_id):
+    """The most recent defect for a question, or None.
+
+    Parameterised, because question_id reaches this from a report input
+    slicer and is caller controlled however much it looks like a dropdown.
+    """
+    cursor.execute(
+        "SELECT TOP 1 d.proposed_instruction, d.instruction_target, "
+        "       d.tier, d.auto_appliable "
+        "FROM dbo.defects AS d "
+        "JOIN dbo.runs AS r ON r.run_id = d.run_id "
+        "WHERE d.question_id = ? "
+        "ORDER BY r.run_ts DESC",
+        question_id,
+    )
+    return cursor.fetchone()
+
+
+def _siblings(cursor, question_id):
+    """Other questions whose latest defect proposes the identical sentence.
+
+    The harness proposes from a small library, so one wrong behaviour usually
+    appears as the same instruction against several questions at once. They
+    are the same decision, and dbo.similar_fixes is where that grouping is
+    defined once rather than in each caller.
+    """
+    cursor.execute(
+        "SELECT s.[Question], s.[Status], s.[Target], s.[Add this instruction] "
+        "FROM dbo.similar_fixes AS s "
+        "JOIN dbo.similar_fixes AS me ON me.[Fix Group] = s.[Fix Group] "
+        "WHERE me.[Question] = ? AND s.[Question] <> ? "
+        "ORDER BY s.[Question]",
+        question_id, question_id,
+    )
+    return cursor.fetchall()
+
+
+def _covering_approval(cursor, question_id, decision):
+    """The decision this group is being asked to follow, or None.
+
+    The most recent decision of the same kind for this question. Approving a
+    group asks for a prior approval; rejecting one asks for a prior rejection.
+    Reading either as licence for the other would record agreement nobody
+    expressed.
+    """
+    cursor.execute(
+        "SELECT TOP 1 approval_id, proposed_instruction, instruction_target "
+        "FROM dbo.approvals "
+        "WHERE question_id = ? AND decision = ? "
+        "ORDER BY approved_ts DESC",
+        question_id, decision,
+    )
+    return cursor.fetchone()
 
 '''
 
@@ -227,19 +310,8 @@ def approve_remediation(
     connection, cursor = _cursor(sqlDb)
     try:
         # The latest defect for this question, and whether it is safe to
-        # apply. Parameterised, because question_id reaches this from a report
-        # input slicer and is caller controlled however much it looks like a
-        # dropdown.
-        cursor.execute(
-            "SELECT TOP 1 d.proposed_instruction, d.instruction_target, "
-            "       d.tier, d.auto_appliable "
-            "FROM dbo.defects AS d "
-            "JOIN dbo.runs AS r ON r.run_id = d.run_id "
-            "WHERE d.question_id = ? "
-            "ORDER BY r.run_ts DESC",
-            question_id,
-        )
-        defect = cursor.fetchone()
+        # apply.
+        defect = _latest_defect(cursor, question_id)
         if defect is None:
             raise fn.UserThrownError(
                 f"No open defect for {question_id}.",
@@ -279,15 +351,22 @@ def approve_remediation(
         # The instruction text is copied into the approval rather than
         # referenced. A person approves a specific sentence, and the proposal
         # can change on the next run.
+        #
+        # covered_by is null: this approval is the one that carries the change.
         cursor.execute(
             "INSERT INTO dbo.approvals (approval_id, approved_ts, question_id, "
             "  instruction_target, proposed_instruction, decision, approved_by, "
-            "  approver_oid, source, note) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "  approver_oid, source, note, covered_by) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             approval_id, _now(), question_id, target, instruction or "",
-            decision, approved_by, oid, "report", (note or "").strip(),
+            decision, approved_by, oid, "report", (note or "").strip(), None,
         )
         connection.commit()
+
+        # Read after the commit, so the count is what the next caller will
+        # see rather than what this transaction happens to be holding.
+        waiting = [row[0] for row in _siblings(cursor, question_id)
+                   if row[1] == AWAITING]
     finally:
         cursor.close()
         connection.close()
@@ -297,10 +376,187 @@ def approve_remediation(
 
     where = ("the model AI instructions" if target == TARGET_SEMANTIC_MODEL
              else "the data agent instructions")
-    return (
+    message = (
         f"Approved {question_id} as {approved_by}. The instruction goes into "
         f"{where}, the remediation runs within about two minutes, and the next "
         f"evaluation says whether it worked. Approval {approval_id}."
+    )
+    if waiting:
+        # Said here, at the moment of approving, because this is when a person
+        # can act on it. Finding out later that four other questions carried
+        # the same sentence means four more trips through the same queue.
+        message += (
+            f" {len(waiting)} other question(s) are waiting on this exact "
+            f"sentence: {', '.join(waiting)}. They are the same decision. Use "
+            "approve_similar to record them together, which marks them "
+            "approved without queueing a second copy of a change that is "
+            "already being made."
+        )
+    return message
+
+
+@udf.connection(argName="sqlDb", alias="__SQL_ALIAS__")
+@udf.context(argName="invocation")
+@udf.function()
+def list_similar_pending(
+    sqlDb: fn.FabricSqlConnection,
+    invocation: fn.UserDataFunctionContext,
+    questionId: str,
+) -> str:
+    """Which other questions are waiting on the same sentence.
+
+    Read only. This is what a person looks at before deciding whether to
+    approve a group, and it names every question in the group with where it
+    has got to, including the ones already decided, because "there are three
+    others and two of them are done" is a different situation from "there are
+    three others and nobody has looked at them".
+    """
+    question_id = _question(questionId)
+    connection, cursor = _cursor(sqlDb)
+    try:
+        if _latest_defect(cursor, question_id) is None:
+            raise fn.UserThrownError(
+                f"No open defect for {question_id}.",
+                {"hint": "The queue may have moved on. Refresh and look again."},
+            )
+        rows = _siblings(cursor, question_id)
+    finally:
+        cursor.close()
+        connection.close()
+
+    if not rows:
+        return (
+            f"No other question carries the same proposed fix as "
+            f"{question_id}. Approving it affects that question alone."
+        )
+
+    waiting = [row[0] for row in rows if row[1] == AWAITING]
+    lines = [f"{row[0]} ({row[1]})" for row in rows]
+    head = (
+        f"{len(rows)} other question(s) carry the same proposed fix as "
+        f"{question_id}, aimed at {rows[0][2]}:"
+    )
+    tail = (
+        f"\\n\\n{len(waiting)} of them are still waiting for a decision. "
+        "approve_similar records them all at once, without queueing a second "
+        "copy of the same change."
+        if waiting else
+        "\\n\\nAll of them have already been decided."
+    )
+    return head + "\\n" + "\\n".join(lines) + tail
+
+
+@udf.connection(argName="sqlDb", alias="__SQL_ALIAS__")
+@udf.context(argName="invocation")
+@udf.function()
+def approve_similar(
+    sqlDb: fn.FabricSqlConnection,
+    invocation: fn.UserDataFunctionContext,
+    questionId: str,
+    decision: str,
+    note: str = "",
+) -> str:
+    """Record the same decision for every question carrying the same sentence.
+
+    `questionId` is the question that was decided first. This applies that
+    decision to its group and to nothing else.
+
+    An approval recorded here is a real decision by a real person about a real
+    question. What it does not do is queue a second copy of a change that is
+    already being made: the sentence is one sentence, the model or the agent
+    gets one line, and approving it four times would produce four identical
+    lines, four remediation runs and four chances for one of them to fail
+    halfway.
+
+    So each approved row is written with `covered_by` naming the approval that
+    carries the change, together with a remediation row that has no applied
+    time. The approval is closed, the loop has nothing to apply, and the
+    report can say why.
+    """
+    question_id = _question(questionId)
+    decision = (decision or "").strip().lower()
+    if decision not in (APPROVED, REJECTED):
+        raise fn.UserThrownError(
+            f"Decision must be '{APPROVED}' or '{REJECTED}'.",
+            {"received": decision},
+        )
+
+    approved_by, oid = _caller(invocation)
+    connection, cursor = _cursor(sqlDb)
+    try:
+        covering = _covering_approval(cursor, question_id, decision)
+        if covering is None:
+            raise fn.UserThrownError(
+                f"{question_id} has not been {decision}, so there is nothing "
+                "for the others to follow.",
+                {"hint": "Decide one question first. That decision is what "
+                         "changes the model or the agent; this records the "
+                         "same one for the questions that share its fix."},
+            )
+        covering_id, instruction, target = covering
+
+        candidates = [row for row in _siblings(cursor, question_id)
+                      if row[1] == AWAITING]
+        if not candidates:
+            return (
+                f"Nothing to do. No other question is waiting on the same "
+                f"sentence as {question_id}."
+            )
+
+        decided = []
+        for sibling_id, _status, sibling_target, sibling_instruction in candidates:
+            approval_id = str(uuid.uuid4())
+            cursor.execute(
+                "INSERT INTO dbo.approvals (approval_id, approved_ts, "
+                "  question_id, instruction_target, proposed_instruction, "
+                "  decision, approved_by, approver_oid, source, note, "
+                "  covered_by) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                approval_id, _now(), sibling_id, sibling_target,
+                sibling_instruction or instruction, decision, approved_by, oid,
+                "report", (note or "").strip(),
+                covering_id if decision == APPROVED else None,
+            )
+
+            if decision == APPROVED:
+                # The closing row. persisted, so the approval is not open and
+                # no remediation run will pick it up; no applied_ts, because
+                # this decision wrote nothing and claiming otherwise would put
+                # a change in the history that never happened.
+                cursor.execute(
+                    "INSERT INTO dbo.remediations (remediation_id, "
+                    "  recorded_ts, applied_ts, approval_id, question_id, "
+                    "  instruction_target, instruction, approved_by, "
+                    "  applied_by, dry_run, persisted, verified, verified_ts, "
+                    "  verified_run_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    str(uuid.uuid4()), _now(), None, approval_id, sibling_id,
+                    sibling_target, sibling_instruction or instruction,
+                    approved_by, f"covered by approval {covering_id}",
+                    0, 1, 0, None, None,
+                )
+            decided.append(sibling_id)
+
+        connection.commit()
+    finally:
+        cursor.close()
+        connection.close()
+
+    if decision == REJECTED:
+        return (
+            f"Rejected {len(decided)} question(s) carrying the same fix as "
+            f"{question_id}: {', '.join(decided)}. Nothing will be applied for "
+            "them."
+        )
+
+    where = ("the model AI instructions" if target == TARGET_SEMANTIC_MODEL
+             else "the data agent instructions")
+    return (
+        f"Approved {len(decided)} question(s) alongside {question_id}: "
+        f"{', '.join(decided)}. The sentence is written to {where} once, by "
+        f"the approval for {question_id}. These are recorded as approved and "
+        "covered by it, so nothing is queued twice and the next evaluation "
+        "run is what says whether the fix worked for all of them."
     )
 
 
@@ -403,6 +659,15 @@ DESCRIPTIONS = {
         "an approval."
     ),
     "list_pending_remediations": "What is waiting for a decision.",
+    "list_similar_pending": (
+        "Which other questions are waiting on the same proposed sentence as "
+        "this one. Read only."
+    ),
+    "approve_similar": (
+        "Record the same decision for every question carrying the same "
+        "proposed sentence. Approved rows are marked as covered by the "
+        "approval that carries the change, so nothing is applied twice."
+    ),
 }
 
 PARAMETERS = {
@@ -417,6 +682,14 @@ PARAMETERS = {
         {"dataType": "str", "name": "comment"},
     ],
     "list_pending_remediations": [],
+    "list_similar_pending": [
+        {"dataType": "str", "name": "questionId"},
+    ],
+    "approve_similar": [
+        {"dataType": "str", "name": "questionId"},
+        {"dataType": "str", "name": "decision"},
+        {"dataType": "str", "name": "note"},
+    ],
 }
 
 
@@ -534,6 +807,16 @@ def call(method: str, url: str, body: dict | None = None) -> tuple[int, dict, di
         ) from None
 
 
+class DeployFailed(Exception):
+    """The platform rejected the update.
+
+    Separate from a bad request, because it is worth retrying once. The
+    update is atomic: an item observed straight after one of these failures
+    still had its previous definition, connection included, so a retry cannot
+    land a half-applied change.
+    """
+
+
 def wait(operation_id: str) -> None:
     for _ in range(60):
         _, payload, _ = call("GET", f"{FABRIC_API}/v1/operations/{operation_id}")
@@ -541,9 +824,9 @@ def wait(operation_id: str) -> None:
         if status == "Succeeded":
             return
         if status in {"Failed", "Undetermined"}:
-            raise SystemExit(f"operation {operation_id} {status}: {payload}")
+            raise DeployFailed(f"operation {operation_id} {status}: {payload}")
         time.sleep(5)
-    raise SystemExit(f"operation {operation_id} did not finish")
+    raise DeployFailed(f"operation {operation_id} did not finish")
 
 
 def find_existing() -> str | None:
@@ -556,7 +839,131 @@ def find_existing() -> str | None:
     return None
 
 
+class CouldNotRead(Exception):
+    """The deployed definition could not be read.
+
+    Its own exception because the caller must not treat it as "there was
+    nothing to carry over". Those two look identical and mean opposite
+    things: one is a first deploy, the other is about to delete a connection.
+    """
+
+
+def deployed_definition(item_id: str) -> dict:
+    """The item definition currently in the workspace, as a parts dict.
+
+    Raises `CouldNotRead` rather than returning empty when the read fails.
+    An empty dict means "this item has no definition parts", and a caller
+    that cannot tell that apart from "the API did not answer" will happily
+    deploy a definition with no connections and delete a working one.
+    """
+    status, payload, headers = call(
+        "POST",
+        f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items/{item_id}/getDefinition",
+    )
+    if status == 202:
+        location = headers.get("Location", "")
+        if not location:
+            raise CouldNotRead("the long running getDefinition returned no Location")
+        for _ in range(60):
+            time.sleep(3)
+            _, body, head = call("GET", location)
+            state = body.get("status")
+            if state == "Succeeded":
+                result = head.get("Location")
+                if result:
+                    _, payload, _ = call("GET", result)
+                break
+            if state in {"Failed", "Undetermined"}:
+                raise CouldNotRead(f"getDefinition {state}")
+        else:
+            raise CouldNotRead("getDefinition did not finish")
+    elif status not in (200, 201):
+        raise CouldNotRead(f"getDefinition returned {status}")
+
+    parts = {}
+    for part in (payload or {}).get("definition", {}).get("parts", []):
+        try:
+            parts[part["path"]] = base64.b64decode(part["payload"]).decode("utf-8")
+        except Exception as exc:  # noqa: BLE001
+            raise CouldNotRead(f"a definition part would not decode: {exc}") from None
+    if not parts:
+        raise CouldNotRead("getDefinition returned no parts")
+    return parts
+
+
+def carry_over_connections(parts: dict[str, str], deployed: dict[str, str]) -> None:
+    """Keep the managed connection somebody added in the portal.
+
+    `connectedDataSources` carries a `dmtsConnectionId`, which is a tenant
+    object created when a person picks the database under Manage connections.
+    It cannot be generated here, so this file builds the definition with an
+    empty list.
+
+    An empty list is not "leave it alone". `updateDefinition` replaces the
+    whole definition, so deploying without this **deletes the connection**,
+    and every function that takes `sqlDb` then fails with "Unable to load data
+    successfully for fabric item". The report says a decision could not be
+    recorded, and nothing anywhere says why.
+
+    That happened. The deploy printed its usual reminder to go and add the
+    connection, which reads like setup advice on a first run and like noise on
+    every run after, so it was the least likely line to be believed.
+
+    This is the same guard as `carry_over_button_action` in the report
+    builder, for the same reason: a deploy must not silently destroy the one
+    part of the item a person had to configure by hand.
+    """
+    if "definition.json" not in deployed:
+        return
+    try:
+        current = json.loads(deployed["definition.json"])
+    except json.JSONDecodeError:
+        return
+
+    sources = current.get("connectedDataSources") or []
+    if not sources:
+        return
+
+    fresh = json.loads(parts["definition.json"])
+    fresh["connectedDataSources"] = sources
+    parts["definition.json"] = json.dumps(fresh, indent=2) + "\n"
+
+    aliases = [s.get("alias") for s in sources if s.get("alias")]
+    print(f"kept the existing managed connection(s) ({', '.join(aliases)})")
+
+    # An alias the code does not use is a connection nobody will reach, and
+    # the failure looks identical to having no connection at all.
+    if SQL_ALIAS not in aliases:
+        print()
+        print(f"WARNING: this item's connection alias is {aliases[0]!r}, but "
+              f"every function asks for {SQL_ALIAS!r}.")
+        print("They will fail with 'Unable to load data successfully for "
+              "fabric item' until those match.")
+        print("Fix it whichever way is easier:")
+        print(f"  $env:FABRIC_SQL_ALIAS = '{aliases[0]}'   # then re-run --deploy")
+        print(f"  or rename the alias to {SQL_ALIAS!r} under Manage connections")
+
+
 def deploy(parts: dict[str, str]) -> int:
+    existing = find_existing()
+
+    if existing:
+        # Fail closed. Deploying without reading the deployed copy first would
+        # replace the definition with one that has no connections, which is
+        # how this script once deleted a working one. Refusing is recoverable;
+        # a silent wipe is a broken report and no explanation.
+        try:
+            carry_over_connections(parts, deployed_definition(existing))
+        except CouldNotRead as exc:
+            raise SystemExit(
+                f"could not read the deployed item: {exc}\n\n"
+                "Nothing was deployed. updateDefinition replaces the whole "
+                "definition, so deploying without first reading what is there "
+                "would delete the managed connection and break every "
+                "approval. Try again, and if it keeps failing, check that you "
+                "can open the item in the portal."
+            ) from None
+
     definition = {
         "parts": [
             {"path": path,
@@ -566,16 +973,15 @@ def deploy(parts: dict[str, str]) -> int:
         ]
     }
 
-    existing = find_existing()
-    if existing:
-        print(f"updating existing function {existing}")
-        status, payload, headers = call(
-            "POST",
-            f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items/{existing}/updateDefinition",
-            {"definition": definition},
-        )
-        item_id = existing
-    else:
+    def push() -> tuple[int, dict, dict, str]:
+        if existing:
+            print(f"updating existing function {existing}")
+            status, payload, headers = call(
+                "POST",
+                f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items/{existing}/updateDefinition",
+                {"definition": definition},
+            )
+            return status, payload, headers, existing
         print("creating function")
         status, payload, headers = call(
             "POST", f"{FABRIC_API}/v1/workspaces/{WORKSPACE_ID}/items",
@@ -584,19 +990,55 @@ def deploy(parts: dict[str, str]) -> int:
                              "accuracy loop. Identity comes from the caller."),
              "definition": definition},
         )
-        item_id = payload.get("id")
+        return status, payload, headers, payload.get("id")
 
-    if status == 202:
+    # Retried once, because the platform's own function deployment step fails
+    # intermittently with a bare "Azure function deployment failed with
+    # error:" and succeeds on the next attempt. The update is atomic, so the
+    # retry starts from the same place: an item inspected straight after one
+    # of these failures still had its previous definition, connection
+    # included.
+    for attempt in (1, 2):
+        status, payload, headers, item_id = push()
+        if status != 202:
+            break
         operation_id = headers.get("x-ms-operation-id")
         print(f"long running operation {operation_id}")
-        wait(operation_id)
-        item_id = item_id or find_existing()
+        try:
+            wait(operation_id)
+            item_id = item_id or find_existing()
+            break
+        except DeployFailed as exc:
+            if attempt == 2:
+                raise SystemExit(
+                    f"{exc}\n\nTwice. Nothing was changed: this update is "
+                    "atomic, so the item still has the definition it had "
+                    "before. Try again later, or look at the item in the "
+                    "portal."
+                ) from None
+            print(f"  {exc}")
+            print("  that step fails intermittently. Nothing was changed, "
+                  "retrying once.")
+            time.sleep(10)
 
     print(f"function ready: {item_id}")
-    print()
-    print("One thing is not deployable from here. Open the item, choose Manage")
-    print(f"connections, add a connection to {SQL_DATABASE_NAME}, and make sure")
-    print(f"the generated alias is {SQL_ALIAS!r}. Rename it if it is not.")
+
+    kept = json.loads(parts["definition.json"]).get("connectedDataSources") or []
+    if not kept:
+        print()
+        print("This item has NO managed connection, so every function that")
+        print("takes sqlDb will fail with 'Unable to load data successfully")
+        print("for fabric item' until it does.")
+        print()
+        print(f"  1. Open {ITEM_NAME!r} in the workspace")
+        print("  2. Manage connections > Add data connection")
+        print(f"  3. Pick {SQL_DATABASE_NAME}, then Connect")
+        print(f"  4. Check the generated alias. This code asks for {SQL_ALIAS!r}.")
+        print("     If it differs, either rename it there, or set")
+        print("     FABRIC_SQL_ALIAS to the generated one and re-run --deploy.")
+        print()
+        print("There is no API for this. The connection is minted by that")
+        print("portal flow and nothing else can create it.")
     return 0
 
 

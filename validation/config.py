@@ -35,6 +35,7 @@ tenant identifiers:
 | `FABRIC_SEMANTIC_MODEL_NAME` | `ContosoCoffee` |
 | `FABRIC_AGENTEVALS_MODEL_NAME` | `AgentEvals` |
 | `FABRIC_AGENTEVALS_REPORT_NAME` | `AgentEvals` |
+| `FABRIC_SQL_ALIAS` | `agentevalsql` |
 
 Set them once per shell:
 
@@ -76,6 +77,21 @@ AGENTEVALS_MODEL_NAME = os.environ.get(
 AGENTEVALS_REPORT_NAME = os.environ.get(
     "FABRIC_AGENTEVALS_REPORT_NAME", "AgentEvals"
 ).strip()
+
+# The alias of the managed connection the approval function reads through.
+#
+# Overridable because the alias is *generated* by the portal when somebody
+# adds the connection, from the name of the data source, and there is no API
+# to create the connection or to rename it. If your tenant generates something
+# other than the default, the functions fail with "Unable to load data
+# successfully for fabric item", which names the function and not the cause.
+#
+# Set this to whatever Manage connections actually shows and redeploy, rather
+# than fighting the portal to rename it.
+#
+# Safe to commit, unlike every other value here: it is a connection name, not
+# a tenant identifier, and it points at nothing on its own.
+SQL_ALIAS = os.environ.get("FABRIC_SQL_ALIAS", "agentevalsql").strip()
 
 RECIPIENTS = [
     recipient.strip()

@@ -154,10 +154,18 @@ should be pointed at SQL.
 
 ### Three decisions worth knowing
 
-**No `%pip install` in either notebook.** The first version installed the `mcp` package.
+**No `%pip install` in any notebook.** The first version installed the `mcp` package.
 That pulls new builds of pydantic, anyio, typing-extensions and jsonschema over the ones
 the Spark runtime ships, and the scheduled job died in twelve seconds. The MCP wire
 protocol is a handful of JSON-RPC calls, so `agent_client.py` speaks it with `urllib`.
+
+`agent_remediate_agent` was the one exception, installing `fabric-data-agent-sdk`, and it
+died the same way in ten seconds on the first agent-targeted approval that ever reached
+it: `System_Cancelled_Session_Statements_Failed`, before a line of its own code ran. The
+caller's handoff caught it, so the only visible symptom was an agent that never changed.
+The SDK is gone. The three calls it was used for are plain REST against
+`/v1/workspaces/{ws}/dataAgents/{id}`, which is what the SDK does underneath, so the rule
+now has no exceptions.
 
 **Activator cannot watch a Delta table.** Its supported sources are Eventstream, KQL,
 Real-Time Hub and Digital Twin Builder. So the notebook writes the history to Delta, which
@@ -684,6 +692,19 @@ Then watch, without touching anything:
 If step 1 does not happen, the approval reached the eventhouse but the rule did
 not fire. If step 2 says `persisted = false`, the run could not write to the
 model, and the identity it ran as is named in the error.
+
+If step 2 shows `persisted = true` with **no** `applied_ts`, nothing was
+written and that is correct: either the sentence was already there, or this
+approval was covered by another one in the same group. The notebook says which,
+and the report counts it as `Already Present` rather than as a fix.
+
+For an agent-targeted instruction, step 4 is the **published** configuration of
+the data agent, not its staging draft. The write PATCHes staging and nothing
+queries staging; the notebook publishes and then verifies against the
+published copy before recording anything. If the agent is unchanged, read the
+end of the `agent_remediate` output: a failed handoff to
+`agent_remediate_agent` does not fail that run, and it prints a banner saying
+so.
 
 ### Tier 2
 

@@ -13,7 +13,11 @@ than merely parses, and lets the guards be tested for real.
 from __future__ import annotations
 
 import ast
+import contextlib
+import io
 import json
+import os
+import re
 import sys
 import types
 import unittest
@@ -57,6 +61,12 @@ class FakeCursor:
 
         if normalised.startswith("SELECT TOP 1 d.proposed_instruction"):
             self._result = self.state["defect"]
+        elif normalised.startswith("SELECT TOP 1 approval_id"):
+            # Keyed by the decision asked for. Approving a group follows a
+            # prior approval; rejecting one follows a prior rejection.
+            self._result = self.state["decided_already"].get(parameters[1])
+        elif "FROM dbo.similar_fixes" in normalised:
+            self._result = list(self.state["siblings"])
         elif "FROM dbo.open_approvals" in normalised:
             self._result = (self.state["open_approvals"],)
         elif "FROM dbo.questions" in normalised:
@@ -110,6 +120,8 @@ def sql_state(
     question_known=True,
     latest_run=("run-under-test",),
     queue=(),
+    siblings=(),
+    decided_already=None,
 ):
     return {
         "defect": defect,
@@ -117,6 +129,13 @@ def sql_state(
         "question_known": question_known,
         "latest_run": latest_run,
         "queue": list(queue),
+        # (question, status, target, instruction), as dbo.similar_fixes returns
+        # the group a question belongs to.
+        "siblings": list(siblings),
+        # What the covering question has already been decided as, keyed by
+        # decision, because approving a group and rejecting one follow
+        # different prior decisions.
+        "decided_already": dict(decided_already or {}),
         "statements": [],
         "writes": [],
         "committed": False,
@@ -227,6 +246,226 @@ class TestGeneratedFileIsCurrent(unittest.TestCase):
             audiences = {b.get("audienceType") for b in entry["bindings"]}
             with self.subTest(function=entry["name"]):
                 self.assertNotIn("KeyVault", audiences)
+
+
+class TestTheManagedConnectionSurvivesADeploy(unittest.TestCase):
+    """The guard that was missing, and what its absence cost.
+
+    `connectedDataSources` carries a `dmtsConnectionId`, a tenant object
+    created when a person picks the database under Manage connections. It
+    cannot be generated, so the builder emits an empty list.
+
+    `updateDefinition` replaces the whole definition, so deploying without a
+    carry-over **deletes the connection**. Every function that takes `sqlDb`
+    then fails with "Unable to load data successfully for fabric item", the
+    report says only that the request could not be submitted, and the item
+    looks perfectly healthy.
+
+    This is the same failure the report builder already guards against with
+    `carry_over_button_action`: a deploy silently destroying the one part of
+    an item a person had to configure by hand.
+    """
+
+    # Deliberately not GUID shaped. A real connection carries GUIDs, but a
+    # GUID in a committed file trips test_no_secrets, and weakening that check
+    # to allow a fixture would be the wrong trade. The same reasoning as the
+    # Invocation oid above.
+    CONNECTION = {
+        "alias": builder.SQL_ALIAS,
+        "artifactId": "artifact-id-under-test",
+        "artifactType": "SqlDatabase",
+        "dmtsConnectionId": "dmts-connection-id-under-test",
+        "workspaceId": "workspace-id-under-test",
+    }
+
+    def deployed(self, sources):
+        definition = builder.build_definition_json()
+        definition["connectedDataSources"] = sources
+        return {"definition.json": json.dumps(definition, indent=2) + "\n"}
+
+    def fresh(self):
+        return {"definition.json":
+                json.dumps(builder.build_definition_json(), indent=2) + "\n"}
+
+    def test_a_fresh_build_carries_no_connection_of_its_own(self) -> None:
+        """Otherwise this whole class would pass without carrying anything."""
+        definition = builder.build_definition_json()
+        self.assertEqual(definition["connectedDataSources"], [])
+
+    def test_the_connection_is_kept(self) -> None:
+        parts = self.fresh()
+        builder.carry_over_connections(parts, self.deployed([self.CONNECTION]))
+        kept = json.loads(parts["definition.json"])["connectedDataSources"]
+        self.assertEqual(kept, [self.CONNECTION])
+
+    def test_the_dmts_id_survives_exactly(self) -> None:
+        """It is the only part that cannot be reconstructed from anything."""
+        parts = self.fresh()
+        builder.carry_over_connections(parts, self.deployed([self.CONNECTION]))
+        self.assertIn(self.CONNECTION["dmtsConnectionId"], parts["definition.json"])
+
+    def test_carrying_over_leaves_the_rest_of_the_definition_alone(self) -> None:
+        parts = self.fresh()
+        builder.carry_over_connections(parts, self.deployed([self.CONNECTION]))
+        after = json.loads(parts["definition.json"])
+        expected = builder.build_definition_json()
+        self.assertEqual(after["functions"], expected["functions"])
+        self.assertEqual(after["libraries"], expected["libraries"])
+        self.assertEqual(after["runtime"], expected["runtime"])
+
+    def test_it_is_safe_on_a_first_deploy(self) -> None:
+        """Nothing deployed yet, so there is nothing to keep."""
+        parts = self.fresh()
+        builder.carry_over_connections(parts, {})
+        self.assertEqual(parts, self.fresh())
+
+    def test_an_unreadable_deployed_item_aborts_rather_than_wiping(self) -> None:
+        """Fail closed. The two failure modes look identical and are opposite.
+
+        "No definition parts" and "the API did not answer" both arrive as an
+        empty result. One is a first deploy; the other is one call away from
+        deleting a working connection. `deployed_definition` raises instead,
+        and `deploy` turns that into a refusal.
+        """
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        body = source.split("def deploy(")[1].split("\ndef ")[0]
+        self.assertIn("CouldNotRead", body)
+        self.assertIn("raise SystemExit", body)
+        self.assertIn("Nothing was deployed", body)
+
+    def test_reading_no_parts_is_an_error_not_an_empty_answer(self) -> None:
+        self.assertTrue(issubclass(builder.CouldNotRead, Exception))
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        body = source.split("def deployed_definition(")[1].split("\ndef ")[0]
+        # Every exit from the reader that is not a successful parse has to
+        # raise, or the caller cannot tell empty from broken.
+        self.assertNotIn("return {}", body)
+        self.assertIn('raise CouldNotRead("getDefinition returned no parts")', body)
+
+    def test_a_flaky_platform_deploy_is_retried_once(self) -> None:
+        """The platform's own function deployment step fails intermittently.
+
+        It comes back as a bare "Azure function deployment failed with
+        error:" and succeeds on the next attempt. Retrying is only safe
+        because the update is atomic, which is why the retry is bounded and
+        commented rather than a general-purpose loop.
+        """
+        self.assertTrue(issubclass(builder.DeployFailed, Exception))
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        body = source.split("def deploy(")[1].split("\ndef ")[0]
+        self.assertIn("for attempt in (1, 2):", body)
+        self.assertIn("except DeployFailed", body)
+        self.assertIn("Nothing was changed", body)
+
+    def test_a_repeated_failure_still_stops(self) -> None:
+        """A retry that never gives up would hide a real breakage."""
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        body = source.split("def deploy(")[1].split("\ndef ")[0]
+        self.assertIn("if attempt == 2:", body)
+        self.assertIn("raise SystemExit", body)
+
+    def test_it_is_safe_when_the_item_has_no_connection_yet(self) -> None:
+        parts = self.fresh()
+        builder.carry_over_connections(parts, self.deployed([]))
+        self.assertEqual(parts, self.fresh())
+
+    def test_unreadable_deployed_json_does_not_stop_a_deploy(self) -> None:
+        parts = self.fresh()
+        builder.carry_over_connections(parts, {"definition.json": "{not json"})
+        self.assertEqual(parts, self.fresh())
+
+    def test_it_warns_when_no_connection_uses_the_alias_the_code_asks_for(self) -> None:
+        """A connection under the wrong alias fails exactly like none at all."""
+        wrong = dict(self.CONNECTION, alias="somethingelse")
+        parts = self.fresh()
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            builder.carry_over_connections(parts, self.deployed([wrong]))
+        self.assertIn("WARNING", stdout.getvalue())
+        self.assertIn(builder.SQL_ALIAS, stdout.getvalue())
+
+    def test_every_function_asks_for_the_same_alias(self) -> None:
+        """One connection serves them all, so one alias has to serve them all."""
+        source = builder.build_function_app()
+        decorated = re.findall(r'@udf\.connection\(argName="sqlDb", alias="([^"]+)"\)',
+                               source)
+        self.assertEqual(len(decorated), len(builder.FUNCTIONS))
+        self.assertEqual(set(decorated), {builder.SQL_ALIAS})
+
+    def test_the_bindings_name_the_same_alias(self) -> None:
+        for entry in builder.build_functions_json()["functionsMetadata"]:
+            aliases = [b.get("alias") for b in entry["bindings"] if b.get("alias")]
+            with self.subTest(function=entry["name"]):
+                self.assertEqual(aliases, [builder.SQL_ALIAS])
+
+    def test_the_carried_connection_never_reaches_the_committed_file(self) -> None:
+        """It is carried in memory, on the way to the tenant, and nowhere else.
+
+        A dmtsConnectionId and a workspaceId in a committed file would be
+        exactly the tenant leak the rest of this repo works to avoid.
+        """
+        on_disk = json.loads(FUNCTION_APP.parent.joinpath("definition.json")
+                             .read_text(encoding="utf-8"))
+        self.assertEqual(on_disk["connectedDataSources"], [])
+        text = FUNCTION_APP.parent.joinpath("definition.json").read_text(encoding="utf-8")
+        for leak in ("dmtsConnectionId", "workspaceId", "artifactId"):
+            with self.subTest(field=leak):
+                self.assertNotIn(leak, text)
+
+
+class TestTheConnectionAliasCanBeOverridden(unittest.TestCase):
+    """Because the portal generates the alias and nothing can rename it.
+
+    The connection is created by a portal flow that mints the alias from the
+    data source's name. There is no API to create the connection, and none to
+    rename it. If a tenant generates something other than the default, the
+    functions fail with "Unable to load data successfully for fabric item",
+    which names the function and not the cause.
+
+    So the alias is configurable, and a deploy that finds a mismatch says
+    exactly which environment variable to set.
+    """
+
+    def test_the_default_is_what_the_committed_file_carries(self) -> None:
+        """A plain checkout must build byte-identically to what is committed."""
+        self.assertEqual(builder.SQL_ALIAS, "agentevalsql")
+        self.assertIn('alias="agentevalsql"', FUNCTION_APP.read_text(encoding="utf-8"))
+
+    def test_the_alias_reaches_every_decorator_and_binding(self) -> None:
+        """One connection serves all five functions, so one alias must too."""
+        source = builder.build_function_app()
+        decorated = re.findall(r'@udf\.connection\(argName="sqlDb", alias="([^"]+)"\)',
+                               source)
+        self.assertEqual(len(decorated), len(builder.FUNCTIONS))
+        self.assertEqual(set(decorated), {builder.SQL_ALIAS})
+
+        for entry in builder.build_functions_json()["functionsMetadata"]:
+            aliases = [b.get("alias") for b in entry["bindings"] if b.get("alias")]
+            with self.subTest(function=entry["name"]):
+                self.assertEqual(aliases, [builder.SQL_ALIAS])
+
+    def test_the_environment_variable_is_read(self) -> None:
+        """Reloaded rather than monkeypatched, so this tests the real wiring."""
+        import importlib
+
+        saved = os.environ.get("FABRIC_SQL_ALIAS")
+        os.environ["FABRIC_SQL_ALIAS"] = "generated_by_the_portal"
+        try:
+            import config
+            importlib.reload(config)
+            self.assertEqual(config.SQL_ALIAS, "generated_by_the_portal")
+        finally:
+            if saved is None:
+                os.environ.pop("FABRIC_SQL_ALIAS", None)
+            else:
+                os.environ["FABRIC_SQL_ALIAS"] = saved
+            import config
+            importlib.reload(config)
+            importlib.reload(builder)
+
+    def test_the_default_survives_the_reload(self) -> None:
+        """Guards the test above from leaving the module in a changed state."""
+        self.assertEqual(builder.SQL_ALIAS, "agentevalsql")
 
 
 class TestTrustBoundary(unittest.TestCase):
@@ -412,6 +651,239 @@ class TestApprovalGuards(unittest.TestCase):
         result = module.approve_remediation(FakeSqlDb(state), Invocation(),
                                             "Q10", "approved", "")
         self.assertIn("model AI instructions", result)
+
+
+class TestBulkApprovalOfSimilarFixes(unittest.TestCase):
+    """Approving a group is one decision, and one change.
+
+    The harness proposes from a small library, so one wrong behaviour usually
+    appears as the same sentence against several questions. Approving each of
+    them separately would queue the same write four times, produce four
+    identical lines in the model, and give four chances for one of them to
+    fail halfway.
+    """
+
+    SENTENCE = "When a question does not state a time period, use all data."
+
+    def group(self, *rows, decided_already=None):
+        if decided_already is None:
+            decided_already = {
+                "approved": ("approval-for-q11", self.SENTENCE, "semantic_model"),
+            }
+        return sql_state(
+            defect=(self.SENTENCE, "semantic_model", 1, True),
+            siblings=rows,
+            decided_already=decided_already,
+        )
+
+    def waiting(self, *questions):
+        return [(q, "awaiting approval", "semantic_model", self.SENTENCE)
+                for q in questions]
+
+    # -- what a person is told ------------------------------------------
+
+    def test_approving_one_names_the_others(self) -> None:
+        """Said at the moment of approving, because that is when it is useful.
+
+        Finding out later that four other questions carried the same sentence
+        means four more trips through the same queue.
+        """
+        module = load_module()
+        state = self.group(*self.waiting("Q12", "Q14"))
+        result = module.approve_remediation(FakeSqlDb(state), Invocation(),
+                                            "Q11", "approved", "")
+        self.assertIn("Q12", result)
+        self.assertIn("Q14", result)
+        self.assertIn("approve_similar", result)
+
+    def test_approving_one_says_nothing_when_the_fix_is_unique(self) -> None:
+        module = load_module()
+        state = self.group()
+        result = module.approve_remediation(FakeSqlDb(state), Invocation(),
+                                            "Q11", "approved", "")
+        self.assertNotIn("approve_similar", result)
+
+    def test_it_does_not_offer_questions_already_decided(self) -> None:
+        module = load_module()
+        state = self.group(
+            ("Q12", "approved, not yet applied", "semantic_model", self.SENTENCE),
+            *self.waiting("Q14"),
+        )
+        result = module.approve_remediation(FakeSqlDb(state), Invocation(),
+                                            "Q11", "approved", "")
+        self.assertIn("Q14", result)
+        self.assertNotIn("Q12", result)
+
+    def test_listing_shows_every_member_and_its_state(self) -> None:
+        """"Three others, two already done" is not "three others, untouched"."""
+        module = load_module()
+        state = self.group(
+            ("Q12", "applied and verified", "semantic_model", self.SENTENCE),
+            *self.waiting("Q14"),
+        )
+        result = module.list_similar_pending(FakeSqlDb(state), Invocation(), "Q11")
+        self.assertIn("Q12 (applied and verified)", result)
+        self.assertIn("Q14 (awaiting approval)", result)
+        self.assertIn("1 of them are still waiting", result)
+
+    def test_listing_writes_nothing(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        module.list_similar_pending(FakeSqlDb(state), Invocation(), "Q11")
+        self.assertEqual(state["writes"], [])
+
+    def test_listing_a_question_with_no_group_says_so(self) -> None:
+        module = load_module()
+        state = self.group()
+        result = module.list_similar_pending(FakeSqlDb(state), Invocation(), "Q11")
+        self.assertIn("No other question", result)
+
+    # -- what approving a group actually writes ---------------------------
+
+    def test_it_records_a_decision_for_every_question_in_the_group(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12", "Q14"))
+        module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                               "approved", "same fix")
+        approvals = written(state, "approvals")
+        self.assertEqual(len(approvals), 2)
+        self.assertIn("Q12", approvals[0])
+        self.assertIn("Q14", approvals[1])
+        self.assertTrue(state["committed"])
+
+    def test_each_covered_approval_names_the_one_that_carries_the_change(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                               "approved", "")
+        self.assertIn("approval-for-q11", written(state, "approvals")[0])
+
+    def test_it_closes_each_covered_approval_so_nothing_is_applied_twice(self) -> None:
+        """The property the whole feature rests on.
+
+        An approval is open until a persisted remediation references it, and
+        an open approval is what the notebook applies. Without the closing
+        row, approving four questions would write the same sentence four
+        times.
+        """
+        module = load_module()
+        state = self.group(*self.waiting("Q12", "Q14"))
+        module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                               "approved", "")
+        remediations = written(state, "remediations")
+        self.assertEqual(len(remediations), 2)
+        for parameters in remediations:
+            with self.subTest(parameters=parameters[4]):
+                # persisted, so the approval is closed and no run picks it up.
+                self.assertIn(1, parameters)
+
+    def test_a_covered_remediation_claims_no_applied_time(self) -> None:
+        """It changed nothing, and the history must not say otherwise."""
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                               "approved", "")
+        parameters = written(state, "remediations")[0]
+        # remediation_id, recorded_ts, applied_ts, ...
+        self.assertIsNone(parameters[2])
+
+    def test_a_covered_remediation_says_what_covered_it(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                               "approved", "")
+        self.assertIn("covered by approval approval-for-q11",
+                      written(state, "remediations")[0])
+
+    # -- the guards -------------------------------------------------------
+
+    def test_it_refuses_when_the_first_question_was_never_approved(self) -> None:
+        """Otherwise a group could be approved with nothing carrying it."""
+        module = load_module()
+        state = sql_state(siblings=self.waiting("Q12"), decided_already={})
+        with self.assertRaises(UserThrownError) as caught:
+            module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                                   "approved", "")
+        self.assertIn("has not been approved", str(caught.exception))
+        self.assertEqual(state["writes"], [])
+
+    def test_approving_a_group_will_not_follow_a_rejection(self) -> None:
+        """Reading a rejection as licence to approve would invent agreement."""
+        module = load_module()
+        state = self.group(*self.waiting("Q12"), decided_already={
+            "rejected": ("approval-for-q11", self.SENTENCE, "semantic_model"),
+        })
+        with self.assertRaises(UserThrownError):
+            module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                                   "approved", "")
+        self.assertEqual(state["writes"], [])
+
+    def test_a_group_can_be_rejected_after_one_rejection(self) -> None:
+        """Rejecting four questions one at a time is the same four clicks."""
+        module = load_module()
+        state = self.group(*self.waiting("Q12", "Q14"), decided_already={
+            "rejected": ("approval-for-q11", self.SENTENCE, "semantic_model"),
+        })
+        result = module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                                        "rejected", "not this one")
+        self.assertEqual(len(written(state, "approvals")), 2)
+        self.assertIn("Rejected", result)
+
+    def test_it_writes_nothing_when_the_group_is_already_decided(self) -> None:
+        module = load_module()
+        state = self.group(
+            ("Q12", "approved, not yet applied", "semantic_model", self.SENTENCE),
+        )
+        result = module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                                        "approved", "")
+        self.assertIn("Nothing to do", result)
+        self.assertEqual(state["writes"], [])
+
+    def test_rejecting_a_group_records_no_remediation(self) -> None:
+        """A rejection changes nothing, so there is nothing to close."""
+        module = load_module()
+        state = self.group(*self.waiting("Q12", "Q14"), decided_already={
+            "rejected": ("approval-for-q11", self.SENTENCE, "semantic_model"),
+        })
+        result = module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                                        "rejected", "not this one")
+        self.assertEqual(len(written(state, "approvals")), 2)
+        self.assertEqual(written(state, "remediations"), [])
+        self.assertIn("Rejected", result)
+
+    def test_a_rejected_row_is_not_covered_by_anything(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"), decided_already={
+            "rejected": ("approval-for-q11", self.SENTENCE, "semantic_model"),
+        })
+        module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                               "rejected", "")
+        self.assertNotIn("approval-for-q11", written(state, "approvals")[0])
+
+    def test_the_bulk_approver_also_comes_from_the_token(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        module.approve_similar(FakeSqlDb(state), Invocation("carol@example.com"),
+                               "Q11", "approved", "")
+        self.assertIn("carol@example.com", written(state, "approvals")[0])
+
+    def test_it_refuses_a_decision_it_does_not_know(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        with self.assertRaises(UserThrownError):
+            module.approve_similar(FakeSqlDb(state), Invocation(), "Q11",
+                                   "maybe", "")
+        self.assertEqual(state["writes"], [])
+
+    def test_a_hostile_question_id_stays_in_the_parameters(self) -> None:
+        module = load_module()
+        state = self.group(*self.waiting("Q12"))
+        module.approve_similar(FakeSqlDb(state), Invocation(),
+                               "Q11'; DROP TABLE dbo.approvals; --",
+                               "approved", "")
+        for statement, _parameters in state["statements"]:
+            with self.subTest(statement=statement[:50]):
+                self.assertNotIn("DROP TABLE", statement)
 
 
 class TestFeedback(unittest.TestCase):
