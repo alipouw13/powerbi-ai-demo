@@ -431,9 +431,40 @@ id and those are not in this repo.
 
 ### The notebooks are not deployed by any of that
 
-Nothing above touches `fabric/*.ipynb`. Those are imported into the workspace,
-and two of them need something doing by hand that is easy to miss because
-nothing fails loudly when it is missing.
+Nothing above touches `fabric/*.ipynb`. Deploy them with their own script:
+
+```powershell
+python validation/deploy_notebooks.py            # say what would change
+python validation/deploy_notebooks.py --deploy   # do it
+```
+
+It updates the four loop notebooks in place. It will **not create** them, so
+import each one once by hand first — a listing that failed and a workspace
+that is empty look identical from a script, and guessing wrong leaves you with
+two of every notebook and a schedule pointed at the wrong copy.
+
+Two things it does that a manual import does not, both easy to miss because
+nothing fails loudly when they are missing.
+
+**It fills in the parameters.** The committed notebooks carry empty
+`WORKSPACE_ID`, `DATA_AGENT_ID` and `KUSTO_URI` on purpose, and a drift test
+enforces it, so an imported notebook does nothing useful until those are set.
+The run parameters — `QUESTION_ID`, `APPROVED_BY`, `APPROVAL_IDS`, `DRY_RUN` —
+are deliberately left alone: those are how a person drives a run, and a
+deployed notebook with `APPROVED_BY` baked in would record every future
+approval as whoever last deployed it.
+
+**It binds the default lakehouse.** `agent_eval` and `agent_remediate` write
+Delta tables with `saveAsTable`, which needs a default lakehouse, and the
+binding lives in notebook metadata that the committed copy does not carry.
+Without it the notebook imports fine, runs, and fails an hour later inside a
+Spark job.
+
+On a tenant with sensitivity labels, `getDefinition` returns 403
+`ItemHasProtectedLabel` for every notebook, so the script cannot read the
+binding that is already there. It says so and falls back to
+`FABRIC_LAKEHOUSE_ID`. If you have deliberately pointed a notebook at a
+different lakehouse, set that variable to match before deploying.
 
 **`agent_remediate_agent` has to exist.** `agent_remediate` reaches it with
 `notebookutils.notebook.run("agent_remediate_agent", ...)`, which resolves by
