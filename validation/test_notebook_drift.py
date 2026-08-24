@@ -480,8 +480,9 @@ class TestRemediationNotebook(unittest.TestCase):
     def test_coerces_dry_run_from_a_string(self) -> None:
         # Activator injects parameters as strings, and "false" is truthy in
         # Python, which would turn every automated remediation into a silent
-        # no-op that reports success.
-        self.assertIn('str(DRY_RUN).strip().lower() not in', self.joined)
+        # no-op that reports success. Resolved through the shared helper, so
+        # both remediation notebooks agree on what "false" means.
+        self.assertIn("resolve_dry_run(DRY_RUN)", self.joined)
 
     def test_refuses_to_write_over_a_concurrent_change(self) -> None:
         # This is a read-modify-write of the whole model, so two overlapping
@@ -540,7 +541,11 @@ class TestAgentRemediationNotebook(unittest.TestCase):
 
     def test_it_coerces_dry_run_from_a_string(self) -> None:
         # A reference run passes parameters as strings, and "false" is truthy.
-        self.assertIn('str(DRY_RUN).strip().lower() not in', self.joined)
+        # This notebook does not embed the harness, so the helper is lifted
+        # into it at build time; calling it without that is a NameError on the
+        # one path nobody runs until a demo.
+        self.assertIn("resolve_dry_run(DRY_RUN)", self.joined)
+        self.assertIn("def resolve_dry_run", self.joined)
 
     def test_it_requires_an_approver(self) -> None:
         self.assertIn("APPROVED_BY is empty", self.joined)

@@ -251,8 +251,10 @@ kusto_token = notebookutils.credentials.getToken(KUSTO_URI)
 
 # Parameters injected by Activator arrive as strings. "false" is a non-empty
 # string and therefore truthy, so without this every automated remediation
-# would quietly do nothing and report success.
-DRY_RUN = str(DRY_RUN).strip().lower() not in ("false", "0", "no", "")
+# would quietly do nothing and report success. Shared and tested in
+# eval_harness, because both remediation notebooks need exactly this rule and
+# two copies of it can drift apart.
+DRY_RUN = resolve_dry_run(DRY_RUN)
 print(f"DRY_RUN resolved to {DRY_RUN}")
 
 

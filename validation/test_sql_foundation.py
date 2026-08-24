@@ -23,6 +23,7 @@ import re
 import sys
 import unittest
 import uuid
+import inspect
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -252,6 +253,89 @@ class TestTheHarnessAsksTheModelNotItsOwnHistory(unittest.TestCase):
         exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
         self.assertIn("SEMANTIC_MODEL_NAME", namespace)
         self.assertTrue(namespace["SEMANTIC_MODEL_NAME"])
+
+
+class TestDryRunIsResolvedNotTrusted(unittest.TestCase):
+    """The single most expensive parameter in the loop.
+
+    Activator and pipelines inject parameters as strings, and every non-empty
+    string is truthy in Python. `if DRY_RUN:` on the literal "false" turns an
+    approved remediation into a no-op that reports success: the person
+    approved a fix, everything says it worked, and the model never changed.
+    That is indistinguishable from the loop being broken, and it is what a
+    demo audience would see.
+    """
+
+    def test_a_string_false_means_apply(self) -> None:
+        for value in ("false", "False", "FALSE", " false ", "0", "no"):
+            with self.subTest(value=value):
+                self.assertFalse(eh.resolve_dry_run(value))
+
+    def test_a_real_boolean_still_works(self) -> None:
+        self.assertTrue(eh.resolve_dry_run(True))
+        self.assertFalse(eh.resolve_dry_run(False))
+
+    def test_the_default_writes_nothing(self) -> None:
+        self.assertTrue(eh.resolve_dry_run("true"))
+
+    def test_anything_unrecognised_writes_nothing(self) -> None:
+        """Fail safe. A blank box or a typo must not authorise a write to a
+        governed model; the cost of a needless dry run is one more click."""
+        for value in ("", "   ", "maybe", None, "flase"):
+            with self.subTest(value=value):
+                self.assertTrue(eh.resolve_dry_run(value))
+
+
+class TestBothRemediationNotebooksResolveDryRun(unittest.TestCase):
+    """And can actually call it.
+
+    `agent_remediate_agent` does not embed the harness -- it talks to REST and
+    the eventhouse and needs none of the scoring -- so a shared helper is only
+    shared if the build puts a copy in the notebook. Getting that wrong is a
+    NameError on the agent path, which is the path nobody runs until a demo.
+    """
+
+    NOTEBOOKS = ("agent_remediate.ipynb", "agent_remediate_agent.ipynb")
+
+    def cells(self, name):
+        nb = json.loads((Path(__file__).resolve().parent.parent / "fabric" / name)
+                        .read_text(encoding="utf-8"))
+        return [("".join(c["source"])) for c in nb["cells"] if c["cell_type"] == "code"]
+
+    def test_each_one_resolves_it(self) -> None:
+        for name in self.NOTEBOOKS:
+            with self.subTest(notebook=name):
+                self.assertIn("resolve_dry_run(DRY_RUN)", "".join(self.cells(name)))
+
+    def test_each_one_can_reach_the_definition(self) -> None:
+        for name in self.NOTEBOOKS:
+            with self.subTest(notebook=name):
+                cells = self.cells(name)
+                defined = next(
+                    (i, s.index("def resolve_dry_run")) for i, s in enumerate(cells)
+                    if "def resolve_dry_run" in s
+                )
+                used = next(
+                    (i, s.index("resolve_dry_run(DRY_RUN)")) for i, s in enumerate(cells)
+                    if "resolve_dry_run(DRY_RUN)" in s
+                )
+                self.assertLess(defined, used,
+                                f"{name} calls resolve_dry_run before defining it")
+
+    def test_the_copy_is_lifted_not_retyped(self) -> None:
+        """One definition. A hand-copied second one can drift, and the two
+        notebooks would then disagree about what "false" means."""
+        source = inspect.getsource(eh.resolve_dry_run)
+        agent = "".join(self.cells("agent_remediate_agent.ipynb"))
+        self.assertIn(source.strip(), agent)
+
+    def test_nobody_reintroduces_the_fail_open_blank(self) -> None:
+        """An earlier version treated "" as false, so a cleared parameter box
+        applied changes for real."""
+        for name in self.NOTEBOOKS:
+            with self.subTest(notebook=name):
+                self.assertNotIn('("false", "0", "no", "")',
+                                 "".join(self.cells(name)))
 
 
 class TestSchemaIsCurrent(unittest.TestCase):
