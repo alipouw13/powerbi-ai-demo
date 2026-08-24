@@ -34,10 +34,12 @@ import apply_schema  # noqa: E402
 import build_approval_function as udf  # noqa: E402
 import build_mirror_notebook as mirror  # noqa: E402
 import build_sql_schema as schema  # noqa: E402
+import eval_harness as eh  # noqa: E402
 import publish_question_bank as bank  # noqa: E402
 
 SCHEMA_SQL = schema.SCHEMA_PATH
 MIRROR_NOTEBOOK = mirror.NOTEBOOK_PATH
+EVAL_BUILDER = Path(__file__).resolve().parent / "build_eval_notebook.py"
 
 
 def columns_of(table: str) -> set[str]:
@@ -52,6 +54,204 @@ def columns_of(table: str) -> set[str]:
         if match:
             found.add(match.group(1))
     return found
+
+
+class TestTheQueueReportsTheModelNotThePaperTrail(unittest.TestCase):
+    """Drift between what this database remembers and what the model holds.
+
+    The AI instructions are editable in the portal. When somebody replaces
+    that box, every sentence the loop appended disappears and not one row
+    here changes, so the queue goes on saying "already present, nothing to
+    write" about a sentence that no longer exists. That is worse than saying
+    nothing: it sends the next person hunting a measure bug that is not
+    there. This happened on the demo tenant.
+    """
+
+    def setUp(self) -> None:
+        self.sql = next(b for name, b in schema.VIEWS if name == "remediation_queue")
+        # Comments quote the very strings these tests look for, so ordering
+        # must be judged on the SQL alone.
+        self.code = "\n".join(
+            line for line in self.sql.splitlines()
+            if not line.strip().startswith("--")
+        )
+
+    def test_the_defects_table_records_what_the_model_held(self) -> None:
+        self.assertIn("instruction_in_model", columns_of("defects"))
+
+    def test_the_column_is_nullable(self) -> None:
+        """Rows written before the column existed cannot be back-filled.
+
+        Nobody knows what the model held at the time, and a default of 0
+        would report every historical defect as drift.
+        """
+        body = next(b for name, b in schema.TABLES if name == "defects")
+        line = next(x for x in body.splitlines() if "instruction_in_model" in x)
+        self.assertIn("NULL", line)
+        self.assertNotIn("NOT NULL", line)
+
+    def test_existing_databases_get_the_column(self) -> None:
+        """The CREATE TABLE is guarded on the table not existing, so without
+        a migration this column only ever appears on a fresh database."""
+        self.assertIn(
+            ("defects", "instruction_in_model",
+             "ALTER TABLE dbo.defects ADD instruction_in_model bit NULL;"),
+            schema.MIGRATIONS,
+        )
+
+    def test_the_queue_reports_drift(self) -> None:
+        self.assertIn("but not in the model now", self.code)
+
+    def test_drift_is_only_claimed_about_the_newest_run(self) -> None:
+        """A fix that worked leaves no new defect.
+
+        Its last defect row stays behind with the flag still false, so
+        without scoping to the newest run every successful fix would be
+        reported as missing from the model.
+        """
+        self.assertIn("l.run_id = n.run_id", self.code)
+        self.assertIn("SELECT TOP 1 run_id FROM dbo.runs ORDER BY run_ts DESC",
+                      self.code)
+
+    def test_drift_outranks_the_remembered_status(self) -> None:
+        """It has to be tested before the branches it contradicts, or the
+        CASE returns the stale answer and the new one is unreachable."""
+        drift = self.code.index("but not in the model now")
+        for stale in ("already present, nothing to write",
+                      "applied and verified"):
+            with self.subTest(branch=stale):
+                self.assertLess(drift, self.code.index(stale))
+
+    def test_an_undecided_question_is_not_called_drift(self) -> None:
+        """'awaiting approval' must still win, because nothing was applied."""
+        self.assertLess(self.code.index("awaiting approval"),
+                        self.code.index("but not in the model now"))
+
+    def test_a_rejected_question_is_not_called_drift(self) -> None:
+        self.assertLess(self.code.index("'rejected'"),
+                        self.code.index("but not in the model now"))
+
+    def test_a_null_flag_cannot_trigger_drift(self) -> None:
+        """Compared with = 0, so the historical NULLs stay silent."""
+        self.assertIn("l.instruction_in_model = 0", self.code)
+
+    def test_the_eval_notebook_writes_the_flag(self) -> None:
+        """A column nothing populates is a column that always reads NULL."""
+        source = EVAL_BUILDER.read_text(encoding="utf-8")
+        self.assertIn("instruction_in_model=bool(p.instruction_in_model)", source)
+        self.assertIn("instruction_in_model", source)
+
+    def test_every_delta_append_can_take_a_new_column(self) -> None:
+        """Delta refuses an append carrying a column the table has not seen.
+
+        Without mergeSchema, adding a field to the harness fails the run at
+        the write step -- after all 15 questions have been asked, paid for,
+        and thrown away. The Kusto side needs .alter-merge on the eventhouse
+        table for the same reason; that one cannot be fixed from here.
+        """
+        source = EVAL_BUILDER.read_text(encoding="utf-8")
+        appends = [line for line in source.splitlines() if "saveAsTable" in line]
+        self.assertEqual(len(appends), 3, appends)
+        window = source.split("saveAsTable")
+        for index, chunk in enumerate(window[:-1]):
+            with self.subTest(write=index):
+                self.assertIn("mergeSchema", chunk[-400:])
+
+
+class TestReadingTheInstructionsOutOfAModel(unittest.TestCase):
+    """`current_instructions` is the one place that knows where they live.
+
+    Every level of the path is optional in TMSL, and this runs inside an
+    evaluation. An IndexError here fails a run about coffee sales.
+    """
+
+    def a_model(self, text):
+        return {"model": {"cultures": [
+            {"name": "en-US",
+             "linguisticMetadata": {"content": {"CustomInstructions": text}}}
+        ]}}
+
+    def test_it_reads_them(self) -> None:
+        self.assertEqual(eh.current_instructions(self.a_model("Use net sales.")),
+                         "Use net sales.")
+
+    def test_a_model_with_no_cultures_is_not_an_error(self) -> None:
+        self.assertEqual(eh.current_instructions({"model": {"cultures": []}}), "")
+
+    def test_a_model_with_no_linguistic_metadata_is_not_an_error(self) -> None:
+        self.assertEqual(
+            eh.current_instructions({"model": {"cultures": [{"name": "en-US"}]}}), "")
+
+    def test_an_empty_script_is_not_an_error(self) -> None:
+        for script in ({}, {"model": {}}, None):
+            with self.subTest(script=script):
+                self.assertEqual(eh.current_instructions(script), "")
+
+    def test_a_null_value_becomes_a_string(self) -> None:
+        """TMSL can carry an explicit null, and "" is what callers can use."""
+        self.assertEqual(eh.current_instructions(self.a_model(None)), "")
+
+    def test_it_agrees_with_instruction_present(self) -> None:
+        model = self.a_model("Alpha.\nBeta.")
+        text = eh.current_instructions(model)
+        self.assertTrue(eh.instruction_present(text, "Beta."))
+        self.assertFalse(eh.instruction_present(text, "Gamma."))
+
+
+class TestTheHarnessAsksTheModelNotItsOwnHistory(unittest.TestCase):
+    """Where "already applied" comes from, and why it cannot be the log.
+
+    The AI instructions are editable in the portal. A person replacing that
+    box removes sentences this loop applied without changing a single row, so
+    a harness that trusts eval_remediations keeps insisting a fix is in place,
+    escalates the question to "needs a human" every run, and never
+    re-proposes the one sentence that would fix it.
+    """
+
+    def setUp(self) -> None:
+        self.source = EVAL_BUILDER.read_text(encoding="utf-8")
+
+    def test_it_reads_the_live_model(self) -> None:
+        self.assertIn("fabric.get_tmsl(SEMANTIC_MODEL_NAME", self.source)
+        self.assertIn("current_instructions(_model)", self.source)
+
+    def test_it_no_longer_trusts_the_remediation_log(self) -> None:
+        self.assertNotIn('spark.table(lh + "eval_remediations")', self.source)
+
+    def test_it_tests_membership_line_by_line(self) -> None:
+        """Substring matching would call a sentence present because a longer
+        one happens to contain it."""
+        self.assertIn("instruction_present(_live, text)", self.source)
+
+    def test_an_unreadable_model_proposes_everything(self) -> None:
+        """Fail noisy, not silent.
+
+        Assuming the history is right would be quiet and wrong; proposing a
+        fix that is already there is merely noise a person can dismiss.
+        """
+        window = self.source[self.source.index("fabric.get_tmsl"):]
+        window = window[:window.index("proposals = propose_fixes")]
+        self.assertIn("except Exception", window)
+        self.assertIn("applied_instructions = frozenset()", window)
+        self.assertIn("WARNING", window)
+
+    def test_the_model_name_is_a_parameter_of_this_notebook(self) -> None:
+        """Reading the model needs its name, and a bare NameError here is
+        invisible: the read is wrapped in `except Exception`, so a missing
+        parameter degrades to "the model has no instructions" and every fix
+        gets proposed again forever, with only a warning nobody reads.
+        """
+        nb = json.loads(
+            (Path(__file__).resolve().parent.parent
+             / "fabric" / "agent_eval.ipynb").read_text(encoding="utf-8"))
+        params = "".join(
+            "".join(c["source"]) for c in nb["cells"]
+            if "parameters" in c.get("metadata", {}).get("tags", [])
+        )
+        namespace: dict = {}
+        exec(compile(params, "<params>", "exec"), namespace)  # noqa: S102
+        self.assertIn("SEMANTIC_MODEL_NAME", namespace)
+        self.assertTrue(namespace["SEMANTIC_MODEL_NAME"])
 
 
 class TestSchemaIsCurrent(unittest.TestCase):

@@ -122,6 +122,11 @@ CREATE TABLE dbo.defects (
     proposed_instruction nvarchar(max)    NULL,
     rationale            nvarchar(max)    NOT NULL,
     auto_appliable       bit              NOT NULL,
+    -- Whether the proposed sentence was already in the model's AI instructions
+    -- when this run measured it. Nullable because rows written before this
+    -- column existed cannot be back-filled honestly: nobody knows what the
+    -- model held at the time, and guessing would be worse than admitting it.
+    instruction_in_model bit              NULL,
     CONSTRAINT pk_defects PRIMARY KEY (run_id, question_id),
     CONSTRAINT fk_defects_run
         FOREIGN KEY (run_id) REFERENCES dbo.runs(run_id),
@@ -231,6 +236,10 @@ MIGRATIONS: list[tuple[str, str, str]] = [
         "approvals", "covered_by",
         "ALTER TABLE dbo.approvals ADD covered_by uniqueidentifier NULL;",
     ),
+    (
+        "defects", "instruction_in_model",
+        "ALTER TABLE dbo.defects ADD instruction_in_model bit NULL;",
+    ),
 ]
 
 # The one definition of outstanding work, matching the Kusto expression in
@@ -251,7 +260,9 @@ WHERE a.decision = 'approved'
 -- What a person reads before deciding. One row per question, its latest
 -- defect, and where that question has got to.
 CREATE VIEW dbo.remediation_queue AS
-WITH latest AS (
+WITH newest AS (
+    SELECT TOP 1 run_id FROM dbo.runs ORDER BY run_ts DESC
+), latest AS (
     SELECT d.*, ROW_NUMBER() OVER (
         PARTITION BY d.question_id ORDER BY r.run_ts DESC) AS rn
     FROM dbo.defects AS d
@@ -274,6 +285,22 @@ SELECT
         WHEN d.decision IS NULL           THEN 'awaiting approval'
         WHEN d.decision = 'rejected'      THEN 'rejected'
         WHEN rm.approval_id IS NULL       THEN 'approved, not yet applied'
+        -- Drift. Every branch below this one reports what this database
+        -- remembers doing; this branch reports what the model actually holds.
+        -- The two can disagree, because the AI instructions are editable in
+        -- the portal and a person replacing that box removes whatever the
+        -- loop appended to it without any row here changing.
+        --
+        -- It is deliberately narrow: the question must still be failing in
+        -- the most recent run, and that run must have found the approved
+        -- sentence absent. A fix that worked produces no new defect, so it
+        -- cannot reach this branch and be called missing.
+        --
+        -- Without it the queue says 'already present, nothing to write' about
+        -- a sentence that is no longer there, which sends somebody hunting a
+        -- measure bug that does not exist.
+        WHEN l.run_id = n.run_id AND l.instruction_in_model = 0
+                                          THEN 'applied before, but not in the model now'
         WHEN rm.applied_ts IS NULL        THEN 'already present, nothing to write'
         WHEN rm.verified = 1              THEN 'applied and verified'
         ELSE 'applied, not yet verified'
@@ -281,6 +308,7 @@ SELECT
     d.approved_by                                   AS [Approved by],
     d.covered_by                                    AS [Covered by]
 FROM latest AS l
+CROSS JOIN newest AS n
 JOIN dbo.questions AS q ON q.question_id = l.question_id
 LEFT JOIN decided AS d ON d.question_id = l.question_id AND d.rn = 1
 LEFT JOIN dbo.remediations AS rm

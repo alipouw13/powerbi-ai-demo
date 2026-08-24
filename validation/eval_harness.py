@@ -607,6 +607,13 @@ class FixProposal:
     # sentence and pretending the job is done.
     proposed_instruction: str = ""
     instruction_target: str = ""
+    # Whether the sentence this defect wants was already in the model's AI
+    # instructions when this run measured it. Recorded rather than inferred,
+    # because it is the only fact in the loop that comes from the model itself.
+    # Everything else -- approved, applied, verified -- is this system's own
+    # paper trail, and a person editing the instructions in the portal can make
+    # that paper trail wrong without touching a single row.
+    instruction_in_model: bool = False
 
     @property
     def auto_appliable(self) -> bool:
@@ -899,6 +906,7 @@ def propose_fixes(
                     "the question itself."
                 ),
                 automatable=False,
+                instruction_in_model=True,
             )
 
         proposals.append(proposal)
@@ -910,6 +918,27 @@ def propose_fixes(
 # --------------------------------------------------------------------------
 
 REMEDIATION_HEADING = "## Automated remediation"
+
+
+def current_instructions(model_script: dict) -> str:
+    """The AI instructions a TMSL script holds, or "" if it holds none.
+
+    This one property is the entire store behind Prep data for AI (preview):
+
+        model > cultures[0] > linguisticMetadata > content > CustomInstructions
+
+    Shared because two notebooks need it and a copy in each is a copy that can
+    disagree. Every level is optional in TMSL, so each is stepped through
+    rather than indexed: a model with no cultures is a valid model, and an
+    IndexError here would fail an evaluation run for a question about coffee
+    sales.
+    """
+    model = (model_script or {}).get("model") or {}
+    cultures = model.get("cultures") or []
+    if not cultures:
+        return ""
+    content = (cultures[0].get("linguisticMetadata") or {}).get("content") or {}
+    return content.get("CustomInstructions", "") or ""
 
 
 def instruction_present(existing: str, instruction: str) -> bool:

@@ -733,6 +733,15 @@ class TestEscalationWhenTheFixWasAlreadyTried(unittest.TestCase):
         self.assertEqual(proposals[0].tier, 1)
         self.assertTrue(proposals[0].auto_appliable)
 
+    def test_a_fresh_proposal_records_the_model_does_not_have_it(self) -> None:
+        """The flag is about the model, not about this system's paper trail.
+
+        It is what lets the queue notice that a sentence it recorded as
+        applied has since been edited out of the portal box.
+        """
+        proposals = eh.propose_fixes([self.result], self.expectations)
+        self.assertFalse(proposals[0].instruction_in_model)
+
     def test_second_time_it_escalates_to_a_human(self) -> None:
         already = frozenset({eh.INSTRUCTION_LIBRARY["default_time_scope"]})
         proposals = eh.propose_fixes([self.result], self.expectations, already)
@@ -742,6 +751,17 @@ class TestEscalationWhenTheFixWasAlreadyTried(unittest.TestCase):
         self.assertFalse(proposal.auto_appliable)
         self.assertFalse(proposal.automatable)
         self.assertIn("already in the model", proposal.rationale)
+        self.assertTrue(proposal.instruction_in_model)
+
+    def test_the_flag_follows_the_model_not_the_escalation(self) -> None:
+        """An unrelated applied instruction must not set it.
+
+        If it did, every question would look like its own fix was live the
+        moment anybody applied any fix at all, and drift would never show.
+        """
+        already = frozenset({eh.INSTRUCTION_LIBRARY["no_forecast"]})
+        proposals = eh.propose_fixes([self.result], self.expectations, already)
+        self.assertFalse(proposals[0].instruction_in_model)
 
     def test_an_unrelated_applied_instruction_does_not_escalate(self) -> None:
         already = frozenset({eh.INSTRUCTION_LIBRARY["no_forecast"]})
