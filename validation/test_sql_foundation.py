@@ -329,6 +329,15 @@ class TestTheRemediationNotebookAttributesTheRun(unittest.TestCase):
     def test_it_still_refuses_when_nobody_is_there(self) -> None:
         self.assertIn("APPROVED_BY is required", self.source)
 
+    def test_the_manual_route_survives_in_the_message(self) -> None:
+        """The escape hatch must not depend on the inference working.
+
+        If `isForInteractive` ever reads False for a real person, an error
+        that only explains why it refused, without saying what to do, leaves
+        somebody stuck mid-demo with no way forward.
+        """
+        self.assertIn("APPROVED_BY in the parameters cell above", self.source)
+
     def test_it_says_so_when_it_infers(self) -> None:
         """A change attributed by inference must not look like one somebody
         typed. The run output is the only place that can say which."""
