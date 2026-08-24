@@ -443,6 +443,30 @@ import each one once by hand first — a listing that failed and a workspace
 that is empty look identical from a script, and guessing wrong leaves you with
 two of every notebook and a schedule pointed at the wrong copy.
 
+### The repo is the source. The workspace is a copy.
+
+Changes go one way:
+
+```
+validation/build_*_notebook.py   edit here
+        |  python validation/build_remediation_notebook.py
+fabric/*.ipynb                   generated, committed, drift-tested
+        |  python validation/deploy_notebooks.py --deploy
+your workspace                   deployed copy
+```
+
+**Editing a notebook in the Fabric portal is not a change, it is a change that
+is about to be lost.** The next deploy replaces the whole definition, and no
+test can warn you, because the tests compare the committed notebook against
+its builder and neither of them can see your workspace. Edit the builder,
+regenerate, redeploy.
+
+There is no round trip. `getDefinition` returns 403 `ItemHasProtectedLabel` for
+every notebook in a labelled workspace, so the deployed copy cannot be read
+back and diffed against the repo. Parity comes from always deploying from the
+committed file, never from comparing. If you are unsure whether the workspace
+is current, redeploy — it is idempotent and costs nothing.
+
 Two things it does that a manual import does not, both easy to miss because
 nothing fails loudly when they are missing.
 
@@ -453,6 +477,13 @@ The run parameters — `QUESTION_ID`, `APPROVED_BY`, `APPROVAL_IDS`, `DRY_RUN` �
 are deliberately left alone: those are how a person drives a run, and a
 deployed notebook with `APPROVED_BY` baked in would record every future
 approval as whoever last deployed it.
+
+That is also why you do not have to type your name into `APPROVED_BY` for a
+hand run. `agent_remediate` takes the signed-in identity from the platform
+when the parameter is empty **and** the run is interactive. An unattended run
+with no `APPROVED_BY` still refuses, because the Activator rule passes one
+itself, so an empty value there means the rule lost its parameter rather than
+permission to attribute a governed change to whoever happened to execute it.
 
 **It binds the default lakehouse.** `agent_eval` and `agent_remediate` write
 Delta tables with `saveAsTable`, which needs a default lakehouse, and the
