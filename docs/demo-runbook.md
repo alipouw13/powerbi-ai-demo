@@ -165,6 +165,10 @@ four get better at once. That is the leverage."
 **Run:** `agent_eval` with `REPEAT=1`, `SURFACE=D`. About nine minutes, so start it and
 keep talking, or use the run from earlier.
 
+> Pass `REPEAT` as a number, not as text. A parameter of `"1"` makes `range(1, REPEAT + 1)`
+> raise `TypeError` about a minute in, after the lakehouse reads and before any question is
+> asked, and the only thing you see is the session being cancelled.
+
 **Say:** "Fifteen questions, graded against ground truth computed from the source tables —
 not from anything the AI said. If the grader asked the AI whether it was right, we would
 be measuring nothing."
@@ -271,6 +275,24 @@ after somebody deleted it."
 
 **Impact:** governance that survives people. Anyone who has run a platform knows the
 change that gets made by hand at 5pm on a Friday. This catches it and names it.
+
+### Sequencing, so this does not vanish mid-demo
+
+The drift rows survive steps 10 and 11. Applying `F03` adds only `F03`'s sentence, and the
+one Q10 and Q11 need is a different sentence that is still missing, so they keep failing
+and keep reporting drift on every run until somebody approves *their* fix.
+
+That gives you a choice:
+
+- **Show it and leave it.** Safe. Nothing you do in steps 8 to 11 clears it.
+- **Close the loop on stage.** Approve Q10 and Q11 from the queue, let the remediation
+  apply, and re-run `agent_eval`. The rows change to "applied and verified" and the score
+  climbs. It is the strongest version and it costs about ten minutes of run time, so only
+  do it if you can talk over a progress bar.
+
+The one thing that *will* clear it silently is somebody re-adding those instructions by
+hand in the portal — the same act that caused the drift in the first place. If you are
+rehearsing, do not tidy the model first.
 
 ---
 
