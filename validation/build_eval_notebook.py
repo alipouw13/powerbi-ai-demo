@@ -31,6 +31,7 @@ LAKEHOUSE_ID = ""
 KUSTO_URI = ""
 
 LAKEHOUSE_NAME = "LH_ContosoCoffee"
+SEMANTIC_MODEL_NAME = "ContosoCoffee"
 KUSTO_DB = "EH_AgentEval"
 
 
@@ -125,6 +126,12 @@ def build_cells() -> list[dict]:
             f'WORKSPACE_ID = "{WORKSPACE_ID}"\n'
             f'DATA_AGENT_ID = "{DATA_AGENT_ID}"\n'
             f'LAKEHOUSE_NAME = "{LAKEHOUSE_NAME}"\n'
+            "\n"
+            "# The semantic model whose AI instructions are read to decide\n"
+            "# which fixes are already in place. Read from the model rather\n"
+            "# than from eval_remediations, because a person editing the\n"
+            "# instructions in the portal changes the model and no row here.\n"
+            f'SEMANTIC_MODEL_NAME = "{SEMANTIC_MODEL_NAME}"\n'
             "\n"
             "# Repetitions per question. This is the single most valuable knob in\n"
             "# the notebook. At 1 you cannot tell a model that is wrong from a\n"
@@ -427,15 +434,34 @@ SCORE_CELL = '''summary = score_run(ordered)
 # Instructions already sitting in the model. A defect whose only proposal is
 # one of these has already had that fix tried, so it is escalated to a human
 # rather than offered again.
-applied_instructions = frozenset()
-if spark.catalog.tableExists(lh + "eval_remediations"):
+#
+# Read from the model, not from eval_remediations. Those two disagree, and the
+# disagreement is the whole point: the AI instructions box is editable in the
+# portal, so a person can remove a sentence this loop applied without any row
+# changing anywhere. Trusting the remediation history means the harness goes on
+# insisting a fix is in place, escalates the question to "needs a human" every
+# run, and never re-proposes the one sentence that would fix it. That is a
+# stuck state that looks like diligence.
+#
+# It also fails safe. If the model cannot be read, an empty set means every
+# proposal is offered again, which is noisy; the alternative -- assuming the
+# history is right -- is silent and wrong.
+try:
+    import sempy.fabric as fabric
+
+    _model = json.loads(fabric.get_tmsl(SEMANTIC_MODEL_NAME, workspace=WORKSPACE_ID))
+    _live = current_instructions(_model)
     applied_instructions = frozenset(
-        r["instruction"]
-        for r in spark.table(lh + "eval_remediations")
-                      .filter("dry_run = false AND persisted = true")
-                      .select("instruction").distinct().collect()
+        text for text in INSTRUCTION_LIBRARY.values()
+        if instruction_present(_live, text)
     )
-print(f"{len(applied_instructions)} instruction(s) already applied to the model")
+    print(f"read {len(_live)} chars of AI instructions from {SEMANTIC_MODEL_NAME}")
+except Exception as exc:  # noqa: BLE001
+    applied_instructions = frozenset()
+    print(f"WARNING: could not read the model's AI instructions ({exc}).")
+    print("Every fix will be proposed as though the model had none.")
+
+print(f"{len(applied_instructions)} instruction(s) already in the model")
 
 proposals = propose_fixes(ordered, expectations, applied_instructions)
 
@@ -533,7 +559,8 @@ runs_row = Row(
 )
 
 runs_df = spark.createDataFrame([runs_row], schema=runs_schema)
-runs_df.write.mode("append").format("delta").saveAsTable(lh + runs_table)
+runs_df.write.mode("append").option("mergeSchema", "true").format(
+    "delta").saveAsTable(lh + runs_table)
 
 results_schema = StructType([
     StructField("run_id", StringType()),
@@ -558,7 +585,8 @@ result_rows = [
 ]
 
 spark.createDataFrame(result_rows, schema=results_schema) \\
-     .write.mode("append").format("delta").saveAsTable(lh + results_table)
+     .write.mode("append").option("mergeSchema", "true") \\
+     .format("delta").saveAsTable(lh + results_table)
 results_df = spark.table(lh + results_table).filter(F.col("run_id") == run_id)
 
 defects_schema = StructType([
@@ -575,6 +603,7 @@ defects_schema = StructType([
     StructField("automatable", BooleanType()),
     StructField("action", StringType()),
     StructField("status", StringType()),
+    StructField("instruction_in_model", BooleanType()),
 ])
 
 defect_rows = [
@@ -587,14 +616,21 @@ defect_rows = [
         auto_appliable=bool(p.auto_appliable),
         automatable=bool(p.automatable), action=TIER_ACTION[p.tier],
         status="awaiting_human_approval",
+        instruction_in_model=bool(p.instruction_in_model),
     )
     for p in proposals
 ]
 
 # Create the table even on a clean run so downstream items have something to
 # bind to. An empty dashboard is better than a broken one.
+#
+# mergeSchema because these tables outlive the schema that created them. A
+# Delta append refuses a DataFrame carrying a column the table has not seen,
+# so adding one to the harness would fail the whole run at the write step,
+# after every question had already been asked and paid for.
 defects_df = spark.createDataFrame(defect_rows, schema=defects_schema)
-defects_df.write.mode("append").format("delta").saveAsTable(lh + defects_table)
+defects_df.write.mode("append").option("mergeSchema", "true").format(
+    "delta").saveAsTable(lh + defects_table)
 
 print(f"wrote {runs_table}, {results_table}, {defects_table}")
 print(f"previous score {previous_score} -> {summary['score']}")
@@ -701,12 +737,14 @@ else:
                 "ON t.run_id = s.run_id AND t.question_id = s.question_id "
                 "WHEN NOT MATCHED THEN INSERT (run_id, question_id, "
                 "  classification, tier, fix_target, instruction_target, "
-                "  proposed_instruction, rationale, auto_appliable) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                "  proposed_instruction, rationale, auto_appliable, "
+                "  instruction_in_model) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
                 run_id, p.question_id,
                 run_id, p.question_id, p.classification, int(p.tier),
                 p.fix_target, p.instruction_target, p.proposed_instruction,
                 p.rationale, 1 if p.auto_appliable else 0,
+                1 if p.instruction_in_model else 0,
             )
 
         sql.commit()

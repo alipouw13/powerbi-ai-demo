@@ -373,7 +373,7 @@ model_script = json.loads(
 )
 culture = model_script["model"]["cultures"][0]
 content = culture["linguisticMetadata"]["content"]
-current = content.get("CustomInstructions", "")
+current = current_instructions(model_script)
 
 # The persistence witness. A read back in the same session can be served from
 # the local TOM copy and will happily show the value we just set even when
