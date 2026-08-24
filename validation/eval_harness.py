@@ -920,6 +920,23 @@ def propose_fixes(
 REMEDIATION_HEADING = "## Automated remediation"
 
 
+def resolve_dry_run(value: object) -> bool:
+    """Whether this run should write nothing.
+
+    Parameters injected by Activator or a pipeline arrive as strings, and a
+    non-empty string is truthy in Python, so `if DRY_RUN:` on the literal
+    "false" turns every automated remediation into a no-op that reports
+    success. That is the worst failure this loop has: a person approves a
+    fix, everything says it worked, and the model never changed.
+
+    Only an explicit denial applies changes. Anything unrecognised -- an
+    empty box, a typo, "maybe" -- resolves to True and writes nothing,
+    because the cost of a needless dry run is one more click, and the cost of
+    guessing the other way is an unreviewed write to a governed model.
+    """
+    return str(value).strip().lower() not in ("false", "0", "no")
+
+
 def current_instructions(model_script: dict) -> str:
     """The AI instructions a TMSL script holds, or "" if it holds none.
 

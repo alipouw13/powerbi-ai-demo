@@ -66,8 +66,10 @@ Run:
 
 from __future__ import annotations
 
+import inspect
 import json
 
+import eval_harness  # noqa: E402
 from build_eval_notebook import (  # noqa: E402
     DATA_AGENT_ID,
     KUSTO_DB,
@@ -79,6 +81,13 @@ from build_eval_notebook import (  # noqa: E402
 )
 
 NOTEBOOK_PATH = ROOT / "fabric" / "agent_remediate_agent.ipynb"
+
+# This notebook deliberately does not embed the whole harness: it talks to the
+# REST API and the eventhouse and needs none of the scoring. It does need the
+# one rule about DRY_RUN, and that rule is safety critical, so the function is
+# lifted from eval_harness at build time rather than retyped. One definition,
+# one set of tests, and no runtime import of a module that is not here.
+DRY_RUN_HELPER = inspect.getsource(eval_harness.resolve_dry_run)
 
 # The heading the loop writes under, matching the model path so that a person
 # reading either set of instructions can see which lines were added by an
@@ -110,7 +119,8 @@ from datetime import datetime, timezone
 
 import notebookutils
 
-DRY_RUN = str(DRY_RUN).strip().lower() not in ("false", "0", "no", "")
+__DRY_RUN_HELPER__
+DRY_RUN = resolve_dry_run(DRY_RUN)
 print(f"DRY_RUN resolved to {DRY_RUN}")
 
 if not APPROVED_BY.strip():
@@ -541,7 +551,7 @@ def build_cells() -> list[dict]:
         "By approval id, passed in by the caller, and re-filtered here so a\n"
         "stale or already applied id cannot be applied twice."
     ))
-    cells.append(code(READ_CELL))
+    cells.append(code(READ_CELL.replace("__DRY_RUN_HELPER__", DRY_RUN_HELPER)))
 
     cells.append(md(
         "## 3. Merge, apply and publish\n"
