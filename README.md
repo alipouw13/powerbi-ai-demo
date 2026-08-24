@@ -103,6 +103,11 @@ And the dashboard is what keeps everyone honest, because it scores the answers:
 Those times add up to about **170 minutes** the first time, including setup. Phase 7's
 optional ontology step adds another 20.
 
+**Already built it and now have to present it?** The phases above are build instructions.
+[`docs/demo-runbook.md`](docs/demo-runbook.md) is the running order for showing it: what
+to open, what to say, and the impact line at each step. About 45 minutes, or 15 if you
+only do the four steps it marks.
+
 **Short on time?** Phases 0, 1, 2, 3, 3b, 4, 6, 8 is the smallest run that still makes the
 point, and comes to about 130 minutes. Phase 6 needs a report to open the Copilot pane
 against, so instead of the full phase 5 use `Auto-create report` on the `ContosoCoffee`
