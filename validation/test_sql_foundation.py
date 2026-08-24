@@ -255,6 +255,94 @@ class TestTheHarnessAsksTheModelNotItsOwnHistory(unittest.TestCase):
         self.assertTrue(namespace["SEMANTIC_MODEL_NAME"])
 
 
+class TestWhoAppliedIt(unittest.TestCase):
+    """`interactive_approver`, and the line it must not cross.
+
+    Typing your own name into a generated notebook buys nothing: the cell is
+    regenerated on every deploy so the value does not survive, and a typed
+    string is the least trustworthy identity available. When a person is
+    sitting there, the platform already knows who they are.
+
+    It must stay shut for unattended runs. The Activator rule passes
+    APPROVED_BY itself, so an empty one there means the rule lost its
+    parameter, and applying a change to a governed model on the strength of a
+    missing value is the thing this whole guard exists to prevent.
+    """
+
+    HUMAN = {"isForInteractive": True, "userName": "System Administrator",
+             "userId": "00000000-0000-0000-0000-000000000000"}
+
+    def test_an_interactive_run_is_attributed(self) -> None:
+        self.assertEqual(
+            eh.interactive_approver(self.HUMAN),
+            "System Administrator (00000000-0000-0000-0000-000000000000)")
+
+    def test_an_unattended_run_gets_nothing(self) -> None:
+        context = dict(self.HUMAN, isForInteractive=False)
+        self.assertEqual(eh.interactive_approver(context), "")
+
+    def test_a_pipeline_run_gets_nothing(self) -> None:
+        context = dict(self.HUMAN, isForInteractive=False, isForPipeline=True)
+        self.assertEqual(eh.interactive_approver(context), "")
+
+    def test_a_missing_flag_is_not_interactive(self) -> None:
+        """Absent must not read as permission."""
+        context = {k: v for k, v in self.HUMAN.items() if k != "isForInteractive"}
+        self.assertEqual(eh.interactive_approver(context), "")
+
+    def test_an_empty_context_is_not_an_error(self) -> None:
+        for context in ({}, None):
+            with self.subTest(context=context):
+                self.assertEqual(eh.interactive_approver(context), "")
+
+    def test_the_object_id_is_required(self) -> None:
+        """A display name alone cannot identify anybody. Two people can share
+        one, and it can be changed."""
+        context = dict(self.HUMAN, userId="")
+        self.assertEqual(eh.interactive_approver(context), "")
+
+    def test_a_display_name_does_not_have_to_look_like_an_address(self) -> None:
+        """The regression this was built from.
+
+        This tenant reports `userName` as "System Administrator". A check for
+        something email-shaped would reject the real person and let nobody
+        through, which is worse than the friction it replaced.
+        """
+        self.assertIn("System Administrator", eh.interactive_approver(self.HUMAN))
+
+    def test_an_unknown_name_falls_back_to_the_id(self) -> None:
+        context = dict(self.HUMAN, userName="unknown")
+        self.assertEqual(eh.interactive_approver(context),
+                         "00000000-0000-0000-0000-000000000000")
+
+
+class TestTheRemediationNotebookAttributesTheRun(unittest.TestCase):
+    def setUp(self) -> None:
+        self.source = (Path(__file__).resolve().parent
+                       / "build_remediation_notebook.py").read_text(encoding="utf-8")
+
+    def test_it_infers_before_it_refuses(self) -> None:
+        """Order matters: refusing first makes the fallback unreachable."""
+        self.assertLess(self.source.index("interactive_approver(notebook_context)"),
+                        self.source.index("APPROVED_BY is required"))
+
+    def test_it_still_refuses_when_nobody_is_there(self) -> None:
+        self.assertIn("APPROVED_BY is required", self.source)
+
+    def test_it_says_so_when_it_infers(self) -> None:
+        """A change attributed by inference must not look like one somebody
+        typed. The run output is the only place that can say which."""
+        self.assertIn("APPROVED_BY was empty, so this run is attributed",
+                      self.source)
+
+    def test_it_does_not_print_one_identity_as_two(self) -> None:
+        """`applied_by` pairs the typed name with the platform's. When the
+        first came from the platform they are the same by construction, and
+        showing both reads like corroboration from a source that is not
+        there."""
+        self.assertIn("APPROVED_BY if APPROVED_BY_INFERRED", self.source)
+
+
 class TestDryRunIsResolvedNotTrusted(unittest.TestCase):
     """The single most expensive parameter in the loop.
 

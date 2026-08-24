@@ -920,6 +920,39 @@ def propose_fixes(
 REMEDIATION_HEADING = "## Automated remediation"
 
 
+def interactive_approver(context: dict) -> str:
+    """Who to record when a hand run left APPROVED_BY empty.
+
+    Returns "" unless the platform says a signed-in person is sitting there,
+    which keeps the empty-parameter failure loud for automated runs. The
+    Activator rule passes APPROVED_BY itself, so an empty one on an unattended
+    run means the rule lost its parameter, and applying a change to a governed
+    model on the strength of a missing value is exactly the thing not to do.
+
+    `isForInteractive` is the discriminator rather than the shape of the name,
+    because the name is not an address. This tenant reports `userName` as
+    "System Administrator" -- a display name, no @ in it -- so a check for
+    something email-shaped would reject the real person and let nothing
+    through at all.
+
+    `userId` is carried alongside because display names are not unique and not
+    stable. It is the same object id the approval function records as
+    `approver_oid`, so an applied row can be tied back to the person who
+    approved it in the report.
+    """
+    if not context or not context.get("isForInteractive"):
+        return ""
+
+    oid = str(context.get("userId") or "").strip()
+    if not oid:
+        return ""
+
+    name = str(context.get("userName") or "").strip()
+    if name and name.lower() != "unknown":
+        return f"{name} ({oid})"
+    return oid
+
+
 def resolve_dry_run(value: object) -> bool:
     """Whether this run should write nothing.
 

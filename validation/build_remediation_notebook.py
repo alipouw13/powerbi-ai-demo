@@ -282,21 +282,42 @@ def write_kusto(df, table):
     )
 
 
+# Who is applying this. Typing your own name into a generated notebook is
+# friction that buys nothing: the cell is regenerated on every deploy, so the
+# value does not survive, and a typed string is the least trustworthy identity
+# available. When a person is sitting there, take it from the platform.
+#
+# Only for interactive runs. An unattended run with no APPROVED_BY is a rule
+# that lost its parameter, and that must still fail rather than attribute a
+# governed change to whichever principal happened to execute it.
+try:
+    notebook_context = dict(notebookutils.runtime.context)
+except Exception:  # noqa: BLE001
+    notebook_context = {}
+
+APPROVED_BY_INFERRED = False
+if not APPROVED_BY.strip():
+    inferred = interactive_approver(notebook_context)
+    if inferred:
+        APPROVED_BY = inferred
+        APPROVED_BY_INFERRED = True
+        print(f"APPROVED_BY was empty, so this run is attributed to the "
+              f"signed-in identity: {APPROVED_BY}")
+
 if not APPROVED_BY.strip():
     raise ValueError(
         "APPROVED_BY is required. A governed semantic model does not take "
         "anonymous changes, so this refuses rather than guessing who you "
         "are.\\n"
         "\\n"
-        "Running this by hand: set APPROVED_BY in the parameters cell above "
-        "to your own sign-in, for example \\"you@contoso.com\\", and run "
-        "again. While you are there, DRY_RUN is True by default and prints "
-        "the diff without writing anything. Read the diff once, then set it "
-        "to False to apply.\\n"
+        "This run is not interactive, so there is no signed-in person to "
+        "attribute it to. A hand run in the portal fills this in by itself "
+        "from the platform identity.\\n"
         "\\n"
         "Seeing this from an automated run: the Activator rule passes "
         "APPROVED_BY itself, so an empty one means the rule has lost its "
-        "parameter. That is the bug, not this."
+        "parameter. That is the bug, not this. Set it explicitly if you are "
+        "driving this from a pipeline or the API."
     )
 
 # The eventhouse is the only approval store, and nothing in it is mutated.
@@ -624,7 +645,13 @@ def remediation_row(row, was_persisted, wrote_something=True):
         instruction_target=row["instruction_target"],
         instruction=row["proposed_instruction"],
         approved_by=row["approved_by"],
-        applied_by=f"{APPROVED_BY} ({executing_identity})",
+        # Two identities when there are two: who said they were applying it,
+        # and who the platform saw run it. When the first was taken from the
+        # platform because nobody typed one, they are the same by
+        # construction, and printing it twice reads like corroboration from a
+        # second source that does not exist.
+        applied_by=(APPROVED_BY if APPROVED_BY_INFERRED
+                    else f"{APPROVED_BY} ({executing_identity})"),
         dry_run=bool(DRY_RUN),
         backup_path=backup_path,
         # An approval is consumed by a persisted remediation, so this flag is
